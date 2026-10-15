@@ -34,10 +34,12 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,14 +48,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,6 +71,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -78,6 +85,7 @@ import eu.kanade.tachiyomi.ui.library.LibraryDisplayItem
 import eu.kanade.tachiyomi.ui.library.LibraryItem
 import eu.kanade.tachiyomi.util.system.CoverColorObserver
 import kotlin.math.absoluteValue
+import kotlin.random.Random
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
@@ -109,14 +117,14 @@ private enum class LibraryHomeTab(val label: String) {
 }
 
 private val EdgePadding = 16.dp
-private val CardGap = 10.dp
+private val CardGap = 12.dp
 private val CardWidth = 120.dp
 private val ContinueWidth = 296.dp
 private val ContinuePoster = 64.dp
 private val ContinueRadius = 20.dp
 private val PosterRadius = 14.dp
 private val TileRadius = 18.dp
-private val ShelfSpacing = 24.dp
+private val ShelfSpacing = 28.dp
 private val BottomSpace = 28.dp
 private val HeroRadius = 26.dp
 private val HeroSpacing = 10.dp
@@ -127,6 +135,10 @@ private val GenreTileWidth = 156.dp
 private val GenreTileHeight = 92.dp
 private val RankZone = 52.dp
 private val RankFont = 112.sp
+private val ToolbarFadeDistance = 240.dp
+
+/** Changes every time the app process starts, so the hero carousel is different on every launch. */
+private val SessionSeed: Long = System.nanoTime()
 
 private const val HeroHeightRatio = 1.3f
 private const val HeroScreenFraction = 0.58f
@@ -156,6 +168,29 @@ private val GenreColors = listOf(
     Color(0xFFDC2626),
 )
 
+/**
+ * Colour of the hero's ambient tint, shared with the toolbar so both blend into one surface.
+ * [fade] goes from 0 (top of the screen) to 1 (scrolled away).
+ */
+internal object LibraryHomeAmbient {
+    var color by mutableStateOf<Color?>(null)
+    var fade by mutableFloatStateOf(0f)
+    private var owner: Any? = null
+
+    fun publish(owner: Any, value: Color) {
+        this.owner = owner
+        color = value
+    }
+
+    fun release(owner: Any) {
+        if (this.owner === owner) {
+            this.owner = null
+            color = null
+            fade = 0f
+        }
+    }
+}
+
 @Immutable
 private class HomeActions(
     val onClick: (LibraryAnime) -> Unit,
@@ -165,6 +200,7 @@ private class HomeActions(
     val onFolderLongClick: ((LibraryDisplayItem.Folder) -> Unit)?,
     val onOpenTab: (LibraryHomeTab) -> Unit,
     val onOpenGenre: (String) -> Unit,
+    val onShuffle: () -> Unit,
 )
 
 @Immutable
@@ -204,7 +240,15 @@ private fun flattenAnime(items: List<LibraryDisplayItem>): List<LibraryItem> {
     }
 }
 
-private fun buildShelves(all: List<LibraryItem>): Shelves {
+/** Deterministic hash of (id, seed): the same pair always sorts the same, whatever the list order. */
+private fun scramble(id: Long, seed: Long): Long {
+    var x = id xor seed
+    x = (x xor (x ushr 33)) * -49064778989728563L
+    x = (x xor (x ushr 33)) * -4265267296055464877L
+    return x xor (x ushr 33)
+}
+
+private fun buildShelves(all: List<LibraryItem>, seed: Long): Shelves {
     val watching = all
         .filter { it.libraryAnime.isWatching() }
         .sortedByDescending { it.libraryAnime.lastSeen }
@@ -215,13 +259,8 @@ private fun buildShelves(all: List<LibraryItem>): Shelves {
         .sortedByDescending { it.libraryAnime.seenCount }
     val finished = all.filter { it.libraryAnime.isFinished() }
 
-    val heroes = (
-        watching.take(3) +
-            notStarted.sortedByDescending { it.libraryAnime.anime.dateAdded }.take(3) +
-            all.sortedByDescending { it.libraryAnime.lastSeen }
-        )
-        .distinctBy { it.libraryAnime.id }
-        .take(HeroCount)
+    // Completely random picks from the whole library (new ones on every app launch).
+    val heroes = all.sortedBy { scramble(it.libraryAnime.id, seed) }.take(HeroCount)
 
     val byGenre = LinkedHashMap<String, MutableList<LibraryItem>>()
     val names = HashMap<String, String>()
@@ -356,7 +395,8 @@ internal fun LibraryHome(
     modifier: Modifier = Modifier,
 ) {
     val flat = remember(items) { flattenAnime(items) }
-    val shelves = remember(flat) { buildShelves(flat) }
+    var heroSeed by rememberSaveable { mutableStateOf(SessionSeed) }
+    val shelves = remember(flat, heroSeed) { buildShelves(flat, heroSeed) }
     val selectedIds = remember(selection) { selection.map { it.id }.toSet() }
     val counts = remember(flat) {
         mapOf(
@@ -378,6 +418,19 @@ internal fun LibraryHome(
 
     val heroPager = rememberPagerState { shelves.heroes.size }
     val listState = rememberLazyListState()
+    val fadePx = with(LocalDensity.current) { ToolbarFadeDistance.toPx() }
+    val ambientOwner = remember { Any() }
+    DisposableEffect(ambientOwner) { onDispose { LibraryHomeAmbient.release(ambientOwner) } }
+    LaunchedEffect(listState, fadePx) {
+        snapshotFlow {
+            if (listState.firstVisibleItemIndex > 0) {
+                1f
+            } else {
+                (listState.firstVisibleItemScrollOffset / fadePx).coerceIn(0f, 1f)
+            }
+        }.collect { LibraryHomeAmbient.fade = it }
+    }
+    LaunchedEffect(heroSeed) { heroPager.scrollToPage(0) }
     val gridRows = remember(tab, genre, items, flat, columns) { buildGridRows(tab, genre, items, flat, columns) }
     val gridCount = remember(gridRows) { gridRows.sumOf { (it as? GridRow.Cells)?.cells?.size ?: 0 } }
 
@@ -396,6 +449,7 @@ internal fun LibraryHome(
                 genre = name
                 tabIndex = LibraryHomeTab.All.ordinal
             },
+            onShuffle = { heroSeed = Random.nextLong() },
         )
     }
 
@@ -411,6 +465,7 @@ internal fun LibraryHome(
                 tab = tab,
                 counts = counts,
                 episodesLeft = episodesLeft,
+                ambientOwner = ambientOwner,
                 heroes = shelves.heroes,
                 pagerState = heroPager,
                 selectedIds = selectedIds,
@@ -483,7 +538,7 @@ private fun LazyListScope.homeShelves(
     }
     shelf(
         key = "recent",
-        title = "Agregados recientemente",
+        title = "Recién agregados",
         subtitle = "Lo último de tu colección",
         entries = shelves.recent,
         selectedIds = selectedIds,
@@ -610,6 +665,7 @@ private fun HomeTop(
     tab: LibraryHomeTab,
     counts: Map<LibraryHomeTab, Int>,
     episodesLeft: Long,
+    ambientOwner: Any,
     heroes: ImmutableList<LibraryItem>,
     pagerState: PagerState,
     selectedIds: Set<Long>,
@@ -628,6 +684,7 @@ private fun HomeTop(
         lerp(background, accent, AmbientFallback)
     }
     val ambient by animateColorAsState(targetValue = ambientTarget, label = "libraryAmbient")
+    SideEffect { LibraryHomeAmbient.publish(ambientOwner, ambient) }
 
     Column(
         modifier = modifier
@@ -639,6 +696,7 @@ private fun HomeTop(
                 watching = counts[LibraryHomeTab.Watching] ?: 0,
                 total = counts[LibraryHomeTab.All] ?: 0,
                 episodesLeft = episodesLeft,
+                onShuffle = actions.onShuffle,
             )
         }
         TabChips(selected = tab, counts = counts, onSelected = actions.onOpenTab)
@@ -668,34 +726,55 @@ private fun HomeGreeting(
     watching: Int,
     total: Int,
     episodesLeft: Long,
+    onShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val greeting = remember { timeGreeting() }
+    val onBackground = MaterialTheme.colorScheme.onBackground
     val summary = if (watching > 0) {
         "$watching en curso · $episodesLeft episodios por ver"
     } else {
         "$total series listas para ver"
     }
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = EdgePadding, end = EdgePadding, top = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = greeting,
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Black,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = summary,
-            modifier = Modifier.padding(top = 2.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = greeting,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = summary,
+                modifier = Modifier.padding(top = 2.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = onBackground.copy(alpha = 0.7f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(onBackground.copy(alpha = 0.12f))
+                .clickable(role = Role.Button, onClick = onShuffle),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Shuffle,
+                contentDescription = "Mezclar destacados",
+                tint = onBackground,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
@@ -1099,15 +1178,22 @@ private fun ShelfHeader(title: String, onSeeAll: (() -> Unit)?, subtitle: String
             }
         }
         if (onSeeAll != null) {
-            Text(
-                text = "Ver todo ›",
+            Box(
                 modifier = Modifier
+                    .padding(start = 8.dp)
+                    .size(32.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onSeeAll)
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+                    .clickable(role = Role.Button, onClick = onSeeAll),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Ver todo",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
     }
 }
@@ -1376,7 +1462,7 @@ private fun PosterCard(
     modifier: Modifier = Modifier,
     showProgress: Boolean = false,
     showTitle: Boolean = true,
-    titleLines: Int = 1,
+    titleLines: Int = 2,
 ) {
     val entry = item.libraryAnime
     val anime = entry.anime
@@ -1446,6 +1532,7 @@ private fun PosterCard(
                 modifier = Modifier.padding(start = 2.dp, end = 2.dp, top = 6.dp),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium,
+                minLines = titleLines,
                 maxLines = titleLines,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1563,9 +1650,10 @@ private fun UnseenTag(count: Long, modifier: Modifier = Modifier) {
         text = count.toString(),
         modifier = modifier
             .padding(6.dp)
-            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(8.dp))
             .padding(horizontal = 7.dp, vertical = 2.dp),
-        color = MaterialTheme.colorScheme.onPrimary,
+        color = Color.White,
         style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.Bold,
     )
@@ -1576,12 +1664,13 @@ private fun FinishedTag(modifier: Modifier = Modifier) {
     Icon(
         imageVector = Icons.Filled.Check,
         contentDescription = "Completado",
-        tint = MaterialTheme.colorScheme.onPrimary,
+        tint = MaterialTheme.colorScheme.primary,
         modifier = modifier
             .padding(6.dp)
-            .size(20.dp)
-            .background(MaterialTheme.colorScheme.primary, CircleShape)
-            .padding(3.dp),
+            .size(22.dp)
+            .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+            .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
+            .padding(4.dp),
     )
 }
 
