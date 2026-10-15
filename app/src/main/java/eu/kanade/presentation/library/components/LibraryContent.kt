@@ -84,6 +84,12 @@ fun LibraryContent(
         val scope = rememberCoroutineScope()
         var isRefreshing by remember(pagerState.currentPage) { mutableStateOf(false) }
 
+        // ANZ -->
+        // The new home layout is edge to edge: it does not use the rounded container.
+        val currentDisplayMode by getDisplayMode(pagerState.currentPage)
+        val useHome = shouldUseLibraryHome(searchQuery, currentDisplayMode)
+        // ANZ <--
+
         LaunchedEffect(categories.size) {
             if (pagerState.currentPage >= categories.size && categories.isNotEmpty()) {
                 pagerState.scrollToPage(categories.lastIndex)
@@ -142,7 +148,7 @@ fun LibraryContent(
                 )
             }
 
-            if (useContainer) {
+            if (useContainer && !useHome) {
                 Surface(
                     modifier = Modifier
                         .fillMaxSize()
