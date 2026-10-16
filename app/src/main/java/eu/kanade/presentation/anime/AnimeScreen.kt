@@ -496,11 +496,14 @@ private fun AnimeScreenSmallImpl(
                 contentWindowInsets = scaffoldInsets,
                 floatingActionButtonPosition = FabPosition.Center,
                 floatingActionButton = {
+                    // ANZ --> the header already has a big play button; the FAB takes over once it scrolls away
+                    val isHeaderPassed by remember { derivedStateOf { episodeListState.firstVisibleItemIndex >= 2 } }
                     AnimatedVisibility(
-                        visible = isFABVisible,
+                        visible = isFABVisible && isHeaderPassed,
                         enter = fadeIn(),
                         exit = fadeOut(),
                     ) {
+                        // ANZ <--
                         DraggableAnimeFAB(
                             isWatching = state.isWatching,
                             onContinueWatching = { onContinueWatching(null) },
@@ -594,7 +597,9 @@ private fun AnimeScreenSmallImpl(
                                 contentPadding = PaddingValues(
                                     start = contentPadding.calculateStartPadding(layoutDirection),
                                     end = contentPadding.calculateEndPadding(layoutDirection),
-                                    bottom = contentPadding.calculateBottomPadding(),
+                                    // ANZ --> leave room so the floating button never covers the last rows
+                                    bottom = contentPadding.calculateBottomPadding() + if (isFABVisible) 88.dp else 0.dp,
+                                    // ANZ <--
                                 ),
                             ) {
                                 // item[0]: info-box only — drives isFirstItemVisible for the
@@ -635,6 +640,7 @@ private fun AnimeScreenSmallImpl(
                                         onContinueWatching = { onContinueWatching(null) },
                                         isWatching = isWatching,
                                         mainTrackItem = remember(state.trackItems) { state.trackItems.firstOrNull() },
+                                        showContinueButton = isFABVisible,
                                     )
                                 }
 
