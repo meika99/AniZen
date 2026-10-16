@@ -12,6 +12,12 @@ import androidx.compose.animation.graphics.res.animatedVectorResource
 import androidx.compose.animation.graphics.res.rememberAnimatedVectorPainter
 import androidx.compose.animation.graphics.vector.AnimatedImageVector
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.draw.shadow
+import androidx.compose.material3.Button
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -149,25 +155,17 @@ fun AnimeInfoBox(
     mergedSources: ImmutableList<eu.kanade.tachiyomi.source.Source> = persistentListOf(),
     isRefreshing: Boolean = false,
 ) {
+    // ANZ -->
     Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.05f)),
+        modifier = modifier.fillMaxWidth(),
     ) {
-        // Backdrop
+        // Immersive backdrop: the artwork fades into the page background.
         val backgroundColor = MaterialTheme.colorScheme.background
-        val backdropGradientColors = remember(backgroundColor) {
-            listOf(
-                Color.Transparent,
-                backgroundColor,
-            )
-        }
-        val backdropBrush = remember(backdropGradientColors) {
-            Brush.verticalGradient(colors = backdropGradientColors)
-        }
+        val isDarkPage = backgroundColor.luminance() < 0.5f
         val context = LocalContext.current
         val uiPreferences = remember { Injekt.get<eu.kanade.domain.ui.UiPreferences>() }
         val animatedTransitions by uiPreferences.animatedTransitions().collectAsState()
+        val hasSourceBackdrop = !anime.backgroundUrl.isNullOrEmpty()
         val backdropImageRequest = remember(
             anime.id,
             anime.thumbnailUrl,
@@ -193,17 +191,22 @@ fun AnimeInfoBox(
             model = backdropImageRequest,
             contentDescription = null,
             contentScale = ContentScale.Crop,
+            alpha = if (isDarkPage) 0.6f else 0.45f,
             modifier = Modifier
                 .matchParentSize()
                 .clipToBounds()
-                .drawWithContent {
-                    drawContent()
-                    drawRect(brush = backdropBrush)
-                }
-                .blur(4.dp)
-                .graphicsLayer {
-                    alpha = 0.25f
-                },
+                .then(if (hasSourceBackdrop) Modifier else Modifier.blur(20.dp)),
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to backgroundColor.copy(alpha = 0.40f),
+                        0.5f to backgroundColor.copy(alpha = 0.10f),
+                        1f to backgroundColor,
+                    ),
+                ),
         )
 
         // Anime & source info
@@ -235,6 +238,7 @@ fun AnimeInfoBox(
             }
         }
     }
+    // ANZ <--
 }
 
 @Composable
@@ -255,10 +259,9 @@ fun AnimeActionRow(
     onContinueWatching: () -> Unit,
     isWatching: Boolean,
     mainTrackItem: eu.kanade.tachiyomi.ui.anime.track.TrackItem? = null,
+    showContinueButton: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val defaultActionButtonColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-
     val nextUpdateCountdown = remember(nextUpdate) {
         if (nextUpdate == null) return@remember null
         val now = Instant.now()
@@ -290,29 +293,53 @@ fun AnimeActionRow(
         }
     }
 
+    // ANZ -->
     Column(
-        modifier = modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = modifier.padding(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            shape = MaterialTheme.shapes.medium,
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
+        if (showContinueButton) {
+            Button(
+                onClick = onContinueWatching,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+                    .tvFocusHighlight(
+                        shape = RoundedCornerShape(16.dp),
+                        focusedScale = 1.03f,
+                    ),
+                shape = RoundedCornerShape(16.dp),
             ) {
-                AnimeActionButton(
-                    title = if (favorite) stringResource(MR.strings.in_library) else stringResource(MR.strings.add_to_library),
-                    icon = if (favorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                    color = if (favorite) MaterialTheme.colorScheme.primary else defaultActionButtonColor,
-                    onClick = onAddToLibraryClicked,
-                    onLongClick = onEditCategory,
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
                 )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(if (isWatching) MR.strings.action_resume else MR.strings.action_start),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AnimeActionButton(
+                title = if (favorite) stringResource(MR.strings.in_library) else stringResource(MR.strings.add_to_library),
+                icon = if (favorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                active = favorite,
+                onClick = onAddToLibraryClicked,
+                onLongClick = onEditCategory,
+            )
+            // "Next update" makes no sense for a finished show, so the tile is hidden then.
+            if (status != SAnime.COMPLETED.toLong()) {
                 AnimeActionButton(
-                    title = if (status == SAnime.COMPLETED.toLong()) {
-                        stringResource(MR.strings.not_applicable)
-                    } else if (fetchInterval == tachiyomi.domain.anime.interactor.FetchInterval.MANUAL_DISABLE) {
+                    title = if (fetchInterval == tachiyomi.domain.anime.interactor.FetchInterval.MANUAL_DISABLE) {
                         stringResource(MR.strings.disabled)
                     } else {
                         nextUpdateCountdown ?: when (nextUpdateDays) {
@@ -321,7 +348,7 @@ fun AnimeActionRow(
                             else -> pluralStringResource(
                                 MR.plurals.day,
                                 count = nextUpdateDays,
-                                nextUpdateDays
+                                nextUpdateDays,
                             )
                         }
                     },
@@ -330,41 +357,40 @@ fun AnimeActionRow(
                     } else {
                         Icons.Default.HourglassEmpty
                     },
-                    color = if (isUserIntervalMode) MaterialTheme.colorScheme.primary else defaultActionButtonColor,
+                    active = isUserIntervalMode,
                     onClick = { if (favorite) onEditIntervalClicked?.invoke() },
                 )
-                AnimeActionButton(
-                    title = run {
-                        if (mainTrackItem?.track != null) {
-                            val status = (mainTrackItem.tracker as? eu.kanade.tachiyomi.data.track.AnimeTracker)?.getStatusForAnime(mainTrackItem.track.status)
-                            val statusText = status?.let { stringResource(it) } ?: ""
-                            statusText
-                        } else if (trackingCount == 0) {
-                            stringResource(MR.strings.manga_tracking_tab)
-                        } else {
-                            pluralStringResource(MR.plurals.num_trackers, count = trackingCount, trackingCount)
-                        }
-                    },
-                    icon = if (mainTrackItem?.track != null || trackingCount > 0) {
-                        Icons.Outlined.Done
+            }
+            AnimeActionButton(
+                title = run {
+                    if (mainTrackItem?.track != null) {
+                        val trackStatus = (mainTrackItem.tracker as? eu.kanade.tachiyomi.data.track.AnimeTracker)?.getStatusForAnime(mainTrackItem.track.status)
+                        val statusText = trackStatus?.let { stringResource(it) } ?: ""
+                        statusText.ifBlank { stringResource(MR.strings.manga_tracking_tab) }
                     } else {
-                        Icons.Outlined.Sync
-                    },
-                    color = if (trackingCount == 0) defaultActionButtonColor else MaterialTheme.colorScheme.primary,
-                    onClick = onTrackingClicked,
+                        stringResource(MR.strings.manga_tracking_tab)
+                    }
+                },
+                icon = if (mainTrackItem?.track != null || trackingCount > 0) {
+                    Icons.Outlined.Done
+                } else {
+                    Icons.Outlined.Sync
+                },
+                active = trackingCount > 0 || mainTrackItem?.track != null,
+                onClick = onTrackingClicked,
+            )
+            if (onWebViewClicked != null) {
+                AnimeActionButton(
+                    title = stringResource(MR.strings.action_web_view),
+                    icon = Icons.Outlined.Public,
+                    active = false,
+                    onClick = onWebViewClicked,
+                    onLongClick = onWebViewLongClicked,
                 )
-                if (onWebViewClicked != null) {
-                    AnimeActionButton(
-                        title = stringResource(MR.strings.action_web_view),
-                        icon = Icons.Outlined.Public,
-                        color = defaultActionButtonColor,
-                        onClick = onWebViewClicked,
-                        onLongClick = onWebViewLongClicked,
-                    )
-                }
             }
         }
     }
+    // ANZ <--
 }
 
 @Composable
@@ -442,7 +468,7 @@ fun ExpandableAnimeDescription(
                 if (expanded) {
                     FlowRow(
                         modifier = Modifier.padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         tags.forEach {
                             TagsChip(
@@ -458,7 +484,7 @@ fun ExpandableAnimeDescription(
                 } else {
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = MaterialTheme.padding.medium),
-                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(
                             items = tags,
@@ -492,31 +518,35 @@ private fun AnimeAndSourceTitlesLarge(
     mergedSources: ImmutableList<eu.kanade.tachiyomi.source.Source>,
     isRefreshing: Boolean,
 ) {
+    // ANZ -->
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, top = appBarPadding + 16.dp, end = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
+            .padding(start = 24.dp, top = appBarPadding + 16.dp, end = 24.dp, bottom = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(28.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val (entry, ratio) = AnimeCover.getEntry(anime.id)
+        val coverShape = RoundedCornerShape(20.dp)
         entry(
             modifier = Modifier
-                .width(if (entry == AnimeCover.Panorama) 200.dp else 160.dp)
+                .width(if (entry == AnimeCover.Panorama) 240.dp else 180.dp)
+                .shadow(elevation = 18.dp, shape = coverShape)
                 .tvFocusHighlight(
-                    shape = MaterialTheme.shapes.medium,
+                    shape = coverShape,
                     borderWidth = 2.5.dp,
                     focusedScale = 1.03f,
                 ),
             data = anime.asAnimeCover(),
             contentDescription = stringResource(MR.strings.manga_cover),
+            shape = coverShape,
             onClick = onCoverClick,
             ratio = ratio,
             shouldExtractColor = true,
         )
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             AnimeContentInfo(
                 title = anime.title,
@@ -533,6 +563,7 @@ private fun AnimeAndSourceTitlesLarge(
             )
         }
     }
+    // ANZ <--
 }
 
 @Composable
@@ -547,47 +578,48 @@ private fun AnimeAndSourceTitlesSmall(
     mergedSources: ImmutableList<eu.kanade.tachiyomi.source.Source>,
     isRefreshing: Boolean,
 ) {
-    Row(
+    // ANZ -->
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, top = appBarPadding + 16.dp, end = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(start = 20.dp, top = appBarPadding + 12.dp, end = 20.dp, bottom = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         val (entry, ratio) = AnimeCover.getEntry(anime.id)
+        val coverShape = RoundedCornerShape(18.dp)
         entry(
             modifier = Modifier
-                .width(if (entry == AnimeCover.Panorama) 140.dp else 100.dp)
+                .width(if (entry == AnimeCover.Panorama) 260.dp else 168.dp)
+                .shadow(elevation = 18.dp, shape = coverShape)
                 .tvFocusHighlight(
-                    shape = MaterialTheme.shapes.medium,
+                    shape = coverShape,
                     borderWidth = 2.5.dp,
                     focusedScale = 1.03f,
                 ),
             data = anime.asAnimeCover(),
             contentDescription = stringResource(MR.strings.manga_cover),
+            shape = coverShape,
             onClick = onCoverClick,
             ratio = ratio,
             shouldExtractColor = true,
         )
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            AnimeContentInfo(
-                title = anime.title,
-                author = anime.author,
-                artist = anime.artist,
-                status = anime.status,
-                score = totalScore,
-                sourceName = sourceName,
-                isStubSource = isStubSource,
-                doSearch = doSearch,
-                textAlign = TextAlign.Start,
-                mergedSources = mergedSources,
-                isRefreshing = isRefreshing,
-            )
-        }
+        Spacer(modifier = Modifier.height(10.dp))
+        AnimeContentInfo(
+            title = anime.title,
+            author = anime.author,
+            artist = anime.artist,
+            status = anime.status,
+            score = totalScore,
+            sourceName = sourceName,
+            isStubSource = isStubSource,
+            doSearch = doSearch,
+            textAlign = TextAlign.Center,
+            mergedSources = mergedSources,
+            isRefreshing = isRefreshing,
+        )
     }
+    // ANZ <--
 }
 
 @Composable
@@ -604,10 +636,20 @@ private fun AnimeContentInfo(
     mergedSources: ImmutableList<eu.kanade.tachiyomi.source.Source>,
     isRefreshing: Boolean,
 ) {
+    // ANZ -->
     val context = LocalContext.current
+    val centered = textAlign == TextAlign.Center
+
     Text(
         text = title.ifBlank { stringResource(MR.strings.unknown_title) },
-        style = MaterialTheme.typography.titleLarge,
+        style = MaterialTheme.typography.headlineSmall.copy(
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = (-0.3).sp,
+            lineHeight = 30.sp,
+        ),
+        color = MaterialTheme.colorScheme.onBackground,
+        maxLines = 4,
+        overflow = TextOverflow.Ellipsis,
         modifier = Modifier
             .tvFocusHighlight(
                 shape = RoundedCornerShape(8.dp),
@@ -627,80 +669,39 @@ private fun AnimeContentInfo(
         textAlign = textAlign,
     )
 
-    Row(
-        modifier = Modifier
-            .secondaryItemAlpha()
-            .tvFocusHighlight(
-                shape = RoundedCornerShape(8.dp),
-                focusedScale = 1.02f,
-            ),
-        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = Icons.Filled.PersonOutline,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-        )
+    // One quiet credit line; nothing at all when the source gives no author.
+    val authorName = author?.takeIf { it.isNotBlank() }
+    val artistName = artist?.takeIf { it.isNotBlank() && it != author }
+    val creditLine = listOfNotNull(authorName, artistName).joinToString("  •  ")
+    if (creditLine.isNotEmpty()) {
         Text(
-            text = author?.takeIf { it.isNotBlank() }
-                ?: if (isRefreshing) "" else stringResource(MR.strings.unknown_author),
-            style = MaterialTheme.typography.titleSmall,
-            maxLines = 1,
+            text = creditLine,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
+                .tvFocusHighlight(
+                    shape = RoundedCornerShape(8.dp),
+                    focusedScale = 1.02f,
+                )
                 .clickableNoIndication(
-                    onLongClick = {
-                        if (!author.isNullOrBlank()) {
-                            context.copyToClipboard(
-                                author,
-                                author,
-                            )
-                        }
-                    },
-                    onClick = { if (!author.isNullOrBlank()) doSearch(author, true) },
+                    onLongClick = { context.copyToClipboard(creditLine, creditLine) },
+                    onClick = { (authorName ?: artistName)?.let { doSearch(it, true) } },
                 ),
             textAlign = textAlign,
         )
     }
 
-    if (!artist.isNullOrBlank() && author != artist) {
-        Row(
-            modifier = Modifier
-                .secondaryItemAlpha()
-                .tvFocusHighlight(
-                    shape = RoundedCornerShape(8.dp),
-                    focusedScale = 1.02f,
-                ),
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Brush,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-            )
-            Text(
-                text = artist,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .clickableNoIndication(
-                        onLongClick = { context.copyToClipboard(artist, artist) },
-                        onClick = { doSearch(artist, true) },
-                    ),
-                textAlign = textAlign,
-            )
-        }
-    }
-
-    Spacer(modifier = Modifier.height(4.dp))
+    Spacer(modifier = Modifier.height(2.dp))
 
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (textAlign == TextAlign.Center) Arrangement.Center else Arrangement.Start,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(
+            6.dp,
+            if (centered) Alignment.CenterHorizontally else Alignment.Start,
+        ),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         InfoChip(
             icon = when (status) {
@@ -724,37 +725,43 @@ private fun AnimeContentInfo(
                 else -> stringResource(MR.strings.unknown)
             },
         )
-        
+
         val scoreText = remember(score) {
             if (score != null && score > 0) {
                 String.format("%.1f", score)
-            } else null
+            } else {
+                null
+            }
         }
         if (scoreText != null) {
-            Spacer(modifier = Modifier.width(4.dp))
             InfoChip(
                 icon = Icons.Default.Star,
                 text = scoreText,
-                iconTint = Color(0xFFFFD700) // Gold
+                iconTint = Color(0xFFFFD700), // Gold
             )
         }
 
-        Spacer(modifier = Modifier.width(4.dp))
         var isRevealed by remember { mutableStateOf(false) }
-        val displayText = if (isRevealed) sourceName
-        else if (isStubSource) sourceName
-        else if (sourceName.contains("Local")) stringResource(MR.strings.local_source)
-        else "Global"
+        val displayText = if (isRevealed) {
+            sourceName
+        } else if (isStubSource) {
+            sourceName
+        } else if (sourceName.contains("Local")) {
+            stringResource(MR.strings.local_source)
+        } else {
+            "Global"
+        }
 
         InfoChip(
             icon = if (isStubSource) Icons.Filled.Warning else if (sourceName.contains("Local")) Icons.Outlined.DoneAll else Icons.Outlined.Public,
             text = displayText,
             iconTint = if (isStubSource) MaterialTheme.colorScheme.error else if (isRevealed) MaterialTheme.colorScheme.primary else null,
-            onClick = { isRevealed = !isRevealed }
+            onClick = { isRevealed = !isRevealed },
         )
 
         MergedSourcesInfo(mergedSources)
     }
+    // ANZ <--
 }
 
 @Composable
@@ -762,7 +769,6 @@ private fun MergedSourcesInfo(
     mergedSources: ImmutableList<eu.kanade.tachiyomi.source.Source>,
 ) {
     mergedSources.forEach { source ->
-        Spacer(modifier = Modifier.width(4.dp))
         InfoChip(
             icon = Icons.Outlined.Language,
             text = source.getNameForAnimeInfo(),
@@ -777,24 +783,25 @@ private fun InfoChip(
     iconTint: Color? = null,
     onClick: (() -> Unit)? = null,
 ) {
+    // ANZ -->
     Surface(
         modifier = Modifier
-            .clip(MaterialTheme.shapes.small)
+            .clip(CircleShape)
             .clickableNoIndication(onClick = onClick ?: {})
             .animateContentSize(),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f),
+        shape = CircleShape,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
-                tint = iconTint ?: MaterialTheme.colorScheme.primary
+                tint = iconTint ?: MaterialTheme.colorScheme.primary,
             )
             AnimatedContent(
                 targetState = text,
@@ -802,17 +809,20 @@ private fun InfoChip(
                     (fadeIn() + scaleIn(initialScale = 0.9f))
                         .togetherWith(fadeOut())
                 },
-                label = "chipText"
+                label = "chipText",
             ) { targetText ->
                 Text(
                     text = targetText,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
     }
+    // ANZ <--
 }
 
 private val descriptionAnnotator = markdownAnnotator(
@@ -852,7 +862,7 @@ private fun AnimeSummary(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (!expanded) Modifier.height(80.dp) else Modifier),
+                    .then(if (!expanded) Modifier.height(96.dp) else Modifier),
             ) {
                 MarkdownRender(
                     content = description,
@@ -915,66 +925,81 @@ private fun AnimeSummary(
 
 private val DefaultTagChipModifier = Modifier.padding(vertical = 4.dp)
 
+// ANZ -->
 @Composable
 private fun TagsChip(
     text: String,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-        androidx.compose.material3.SuggestionChip(
-            modifier = modifier.tvFocusHighlight(
-                shape = androidx.compose.material3.SuggestionChipDefaults.shape,
+    val shape = CircleShape
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurface,
+        maxLines = 1,
+        modifier = modifier
+            .tvFocusHighlight(
+                shape = shape,
                 focusedScale = 1.05f,
-            ),
-            onClick = onClick,
-            label = { Text(text = text, style = MaterialTheme.typography.bodySmall) },
-            colors = androidx.compose.material3.SuggestionChipDefaults.suggestionChipColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                labelColor = MaterialTheme.colorScheme.onSurface,
-            ),
-            border = null,
-        )
-    }
+            )
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+            .border(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+    )
 }
 
+/** Compact tile: icon over a single-line label. Tinted with the cover color when active. */
 @Composable
 private fun RowScope.AnimeActionButton(
     title: String,
     icon: ImageVector? = null,
-    color: Color,
+    active: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     iconContent: (@Composable () -> Unit)? = null,
 ) {
-    TextButton(
-        onClick = onClick,
+    val shape = RoundedCornerShape(16.dp)
+    val colors = MaterialTheme.colorScheme
+    val tint = if (active) colors.primary else colors.onSurfaceVariant
+    Column(
         modifier = Modifier
             .weight(1f)
             .tvFocusHighlight(
-                shape = RoundedCornerShape(12.dp),
+                shape = shape,
                 focusedScale = 1.05f,
-            ),
-        onLongClick = onLongClick,
+            )
+            .clip(shape)
+            .background(if (active) colors.primary.copy(alpha = 0.14f) else colors.onSurface.copy(alpha = 0.06f))
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
+            .padding(horizontal = 4.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (iconContent != null) {
-                iconContent()
-            } else if (icon != null) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = color,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = title,
-                color = color,
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center,
+        if (iconContent != null) {
+            iconContent()
+        } else if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(22.dp),
             )
         }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = title,
+            color = tint,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
     }
 }
+// ANZ <--
