@@ -33,7 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import eu.kanade.tachiyomi.animesource.ConfigurableSource
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALRelationEdge
 import tachiyomi.domain.anime.model.Anime
 import tachiyomi.domain.source.service.SourceManager
