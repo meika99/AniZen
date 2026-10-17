@@ -14,6 +14,8 @@ import androidx.compose.animation.graphics.vector.AnimatedImageVector
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.material3.Button
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
@@ -191,19 +193,26 @@ fun AnimeInfoBox(
             model = backdropImageRequest,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            alpha = if (isDarkPage) 0.6f else 0.45f,
+            alpha = if (isDarkPage) 0.75f else 0.55f,
             modifier = Modifier
                 .matchParentSize()
                 .clipToBounds()
-                .then(if (hasSourceBackdrop) Modifier else Modifier.blur(20.dp)),
+                .graphicsLayer {
+                    // Slight zoom hides the soft edges the blur leaves around the image.
+                    scaleX = 1.15f
+                    scaleY = 1.15f
+                }
+                .blur(if (hasSourceBackdrop) 14.dp else 28.dp),
         )
+        val deepColor = if (isDarkPage) Color.Black else backgroundColor
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to backgroundColor.copy(alpha = 0.40f),
-                        0.5f to backgroundColor.copy(alpha = 0.10f),
+                        0f to deepColor.copy(alpha = 0.50f),
+                        0.45f to deepColor.copy(alpha = 0.30f),
+                        0.85f to backgroundColor.copy(alpha = 0.92f),
                         1f to backgroundColor,
                     ),
                 ),
@@ -295,7 +304,7 @@ fun AnimeActionRow(
 
     // ANZ -->
     Column(
-        modifier = modifier.padding(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 8.dp),
+        modifier = modifier.padding(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (showContinueButton) {
@@ -324,9 +333,12 @@ fun AnimeActionRow(
             }
         }
 
+        // One quiet bar that groups every quick action.
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AnimeActionButton(
@@ -358,6 +370,7 @@ fun AnimeActionRow(
                         Icons.Default.HourglassEmpty
                     },
                     active = isUserIntervalMode,
+                    showDivider = true,
                     onClick = { if (favorite) onEditIntervalClicked?.invoke() },
                 )
             }
@@ -377,6 +390,7 @@ fun AnimeActionRow(
                     Icons.Outlined.Sync
                 },
                 active = trackingCount > 0 || mainTrackItem?.track != null,
+                showDivider = true,
                 onClick = onTrackingClicked,
             )
             if (onWebViewClicked != null) {
@@ -384,6 +398,7 @@ fun AnimeActionRow(
                     title = stringResource(MR.strings.action_web_view),
                     icon = Icons.Outlined.Public,
                     active = false,
+                    showDivider = true,
                     onClick = onWebViewClicked,
                     onLongClick = onWebViewLongClicked,
                 )
@@ -528,10 +543,11 @@ private fun AnimeAndSourceTitlesLarge(
     ) {
         val (entry, ratio) = AnimeCover.getEntry(anime.id)
         val coverShape = RoundedCornerShape(20.dp)
+        val glowColor = MaterialTheme.colorScheme.primary
         entry(
             modifier = Modifier
                 .width(if (entry == AnimeCover.Panorama) 240.dp else 180.dp)
-                .shadow(elevation = 18.dp, shape = coverShape)
+                .shadow(elevation = 24.dp, shape = coverShape, ambientColor = glowColor, spotColor = glowColor)
                 .tvFocusHighlight(
                     shape = coverShape,
                     borderWidth = 2.5.dp,
@@ -582,16 +598,17 @@ private fun AnimeAndSourceTitlesSmall(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, top = appBarPadding + 12.dp, end = 20.dp, bottom = 12.dp),
+            .padding(start = 20.dp, top = appBarPadding + 12.dp, end = 20.dp, bottom = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         val (entry, ratio) = AnimeCover.getEntry(anime.id)
         val coverShape = RoundedCornerShape(18.dp)
+        val glowColor = MaterialTheme.colorScheme.primary
         entry(
             modifier = Modifier
                 .width(if (entry == AnimeCover.Panorama) 260.dp else 168.dp)
-                .shadow(elevation = 18.dp, shape = coverShape)
+                .shadow(elevation = 24.dp, shape = coverShape, ambientColor = glowColor, spotColor = glowColor)
                 .tvFocusHighlight(
                     shape = coverShape,
                     borderWidth = 2.5.dp,
@@ -846,45 +863,38 @@ private fun AnimeSummary(
     onExpand: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val backgroundColor = MaterialTheme.colorScheme.background
+    // ANZ -->
+    val cardColor = MaterialTheme.colorScheme.surfaceContainerLow
+    val shape = RoundedCornerShape(20.dp)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .animateContentSize()
             .tvFocusHighlight(
-                shape = RoundedCornerShape(12.dp),
+                shape = shape,
                 focusedScale = 1.01f,
             )
-            .clipToBounds()
+            .clip(shape)
+            .background(cardColor)
             .clickableNoIndication(onClick = onExpand),
     ) {
         SelectionContainer {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (!expanded) Modifier.height(96.dp) else Modifier),
+                    .then(if (!expanded) Modifier.height(124.dp) else Modifier)
+                    .clipToBounds(),
             ) {
                 MarkdownRender(
                     content = description,
                     modifier = Modifier
                         .secondaryItemAlpha()
-                        .padding(bottom = if (expanded) 24.dp else 0.dp)
-                        .drawWithContent {
-                            drawContent()
-                            if (!expanded) {
-                                val gradientHeight = 24.dp.toPx()
-                                drawRect(
-                                    brush = Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.Transparent,
-                                            backgroundColor,
-                                        ),
-                                        startY = size.height - gradientHeight,
-                                        endY = size.height,
-                                    ),
-                                )
-                            }
-                        },
+                        .padding(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 14.dp,
+                            bottom = if (expanded) 40.dp else 0.dp,
+                        ),
                     annotator = descriptionAnnotator,
                 )
             }
@@ -900,14 +910,15 @@ private fun AnimeSummary(
                             brush = Brush.verticalGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    backgroundColor.copy(alpha = 0.8f),
+                                    cardColor,
                                 ),
                             ),
                         )
                     } else {
                         Modifier
                     },
-                ),
+                )
+                .padding(top = 28.dp, bottom = 6.dp),
             contentAlignment = Alignment.Center,
         ) {
             val image = AnimatedImageVector.animatedVectorResource(R.drawable.anim_caret_down)
@@ -916,11 +927,12 @@ private fun AnimeSummary(
                 contentDescription = stringResource(
                     if (expanded) MR.strings.manga_info_collapse else MR.strings.manga_info_expand,
                 ),
-                tint = MaterialTheme.colorScheme.onBackground,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(24.dp),
             )
         }
     }
+    // ANZ <--
 }
 
 private val DefaultTagChipModifier = Modifier.padding(vertical = 4.dp)
@@ -951,7 +963,7 @@ private fun TagsChip(
     )
 }
 
-/** Compact tile: icon over a single-line label. Tinted with the cover color when active. */
+/** Compact action inside the shared bar: icon over a single-line label, tinted when active. */
 @Composable
 private fun RowScope.AnimeActionButton(
     title: String,
@@ -959,25 +971,34 @@ private fun RowScope.AnimeActionButton(
     active: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    showDivider: Boolean = false,
     iconContent: (@Composable () -> Unit)? = null,
 ) {
-    val shape = RoundedCornerShape(16.dp)
     val colors = MaterialTheme.colorScheme
     val tint = if (active) colors.primary else colors.onSurfaceVariant
+    val dividerColor = colors.onSurface.copy(alpha = 0.14f)
     Column(
         modifier = Modifier
             .weight(1f)
             .tvFocusHighlight(
-                shape = shape,
+                shape = RoundedCornerShape(20.dp),
                 focusedScale = 1.05f,
             )
-            .clip(shape)
-            .background(if (active) colors.primary.copy(alpha = 0.14f) else colors.onSurface.copy(alpha = 0.06f))
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
-            .padding(horizontal = 4.dp, vertical = 12.dp),
+            .drawBehind {
+                if (showDivider) {
+                    drawLine(
+                        color = dividerColor,
+                        start = Offset(0f, size.height * 0.28f),
+                        end = Offset(0f, size.height * 0.72f),
+                        strokeWidth = 1.dp.toPx(),
+                    )
+                }
+            }
+            .padding(horizontal = 4.dp, vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (iconContent != null) {
