@@ -1,5 +1,9 @@
 package eu.kanade.presentation.anime.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
@@ -193,7 +197,7 @@ fun AnimeInfoBox(
             model = backdropImageRequest,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            alpha = if (isDarkPage) 0.75f else 0.55f,
+            alpha = if (isDarkPage) 0.9f else 0.6f,
             modifier = Modifier
                 .matchParentSize()
                 .clipToBounds()
@@ -211,7 +215,7 @@ fun AnimeInfoBox(
                 .background(
                     Brush.verticalGradient(
                         0f to deepColor.copy(alpha = 0.50f),
-                        0.45f to deepColor.copy(alpha = 0.30f),
+                        0.45f to deepColor.copy(alpha = 0.22f),
                         0.85f to backgroundColor.copy(alpha = 0.92f),
                         1f to backgroundColor,
                     ),
@@ -312,12 +316,18 @@ fun AnimeActionRow(
                 onClick = onContinueWatching,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(54.dp)
+                    .height(56.dp)
+                    .shadow(
+                        elevation = 14.dp,
+                        shape = RoundedCornerShape(18.dp),
+                        ambientColor = MaterialTheme.colorScheme.primary,
+                        spotColor = MaterialTheme.colorScheme.primary,
+                    )
                     .tvFocusHighlight(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(18.dp),
                         focusedScale = 1.03f,
                     ),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
             ) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
@@ -603,25 +613,59 @@ private fun AnimeAndSourceTitlesSmall(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         val (entry, ratio) = AnimeCover.getEntry(anime.id)
-        val coverShape = RoundedCornerShape(18.dp)
+        val coverShape = RoundedCornerShape(26.dp)
         val glowColor = MaterialTheme.colorScheme.primary
-        entry(
-            modifier = Modifier
-                .width(if (entry == AnimeCover.Panorama) 260.dp else 168.dp)
-                .shadow(elevation = 24.dp, shape = coverShape, ambientColor = glowColor, spotColor = glowColor)
-                .tvFocusHighlight(
-                    shape = coverShape,
-                    borderWidth = 2.5.dp,
-                    focusedScale = 1.03f,
-                ),
-            data = anime.asAnimeCover(),
-            contentDescription = stringResource(MR.strings.manga_cover),
-            shape = coverShape,
-            onClick = onCoverClick,
-            ratio = ratio,
-            shouldExtractColor = true,
-        )
-        Spacer(modifier = Modifier.height(10.dp))
+        val screenWidth = LocalConfiguration.current.screenWidthDp
+        val coverWidth = if (entry == AnimeCover.Panorama) {
+            (screenWidth - 40).coerceIn(240, 440).dp
+        } else {
+            (screenWidth * 0.72f).coerceIn(200f, 330f).dp
+        }
+        val appear = remember(anime.id) { Animatable(0f) }
+        LaunchedEffect(anime.id) {
+            appear.animateTo(1f, spring(dampingRatio = 0.75f, stiffness = 200f))
+        }
+        // Soft aura in the cover's colour behind the poster, so it feels lit from within.
+        Box(
+            modifier = Modifier.drawBehind {
+                val radius = size.maxDimension * 0.85f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(glowColor.copy(alpha = 0.38f), Color.Transparent),
+                        center = center,
+                        radius = radius,
+                    ),
+                    radius = radius,
+                    center = center,
+                )
+            },
+            contentAlignment = Alignment.Center,
+        ) {
+            entry(
+                modifier = Modifier
+                    .width(coverWidth)
+                    .graphicsLayer {
+                        val grow = 0.9f + 0.1f * appear.value
+                        scaleX = grow
+                        scaleY = grow
+                        alpha = appear.value.coerceIn(0f, 1f)
+                    }
+                    .shadow(elevation = 32.dp, shape = coverShape, ambientColor = glowColor, spotColor = glowColor)
+                    .border(1.dp, Color.White.copy(alpha = 0.14f), coverShape)
+                    .tvFocusHighlight(
+                        shape = coverShape,
+                        borderWidth = 2.5.dp,
+                        focusedScale = 1.03f,
+                    ),
+                data = anime.asAnimeCover(),
+                contentDescription = stringResource(MR.strings.manga_cover),
+                shape = coverShape,
+                onClick = onCoverClick,
+                ratio = ratio,
+                shouldExtractColor = true,
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
         AnimeContentInfo(
             title = anime.title,
             author = anime.author,
@@ -687,8 +731,11 @@ private fun AnimeContentInfo(
     )
 
     // One quiet credit line; nothing at all when the source gives no author.
-    val authorName = author?.takeIf { it.isNotBlank() }
-    val artistName = artist?.takeIf { it.isNotBlank() && it != author }
+    val placeholders = setOf("desconocido", "unknown", "n/a", "-", "none")
+    val authorName = author?.takeIf { it.isNotBlank() && it.trim().lowercase() !in placeholders }
+    val artistName = artist?.takeIf {
+        it.isNotBlank() && it != author && it.trim().lowercase() !in placeholders
+    }
     val creditLine = listOfNotNull(authorName, artistName).joinToString("  •  ")
     if (creditLine.isNotEmpty()) {
         Text(
@@ -808,6 +855,7 @@ private fun InfoChip(
             .animateContentSize(),
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f),
         shape = CircleShape,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
