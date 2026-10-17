@@ -1,5 +1,10 @@
 package eu.kanade.presentation.library.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.State
 import android.content.res.Configuration
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -12,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -382,6 +388,55 @@ private fun progressLabel(entry: LibraryAnime): String {
     }
 }
 
+// ANZ -->
+private const val NewWindowMs = 7L * 24 * 60 * 60 * 1000
+
+/** "Nuevo" only means something when the series really was added in the last 7 days. */
+private fun LibraryAnime.isRecentlyAdded(): Boolean {
+    val added = anime.dateAdded
+    if (added <= 0L) return false
+    val millis = if (added < 100_000_000_000L) added * 1000 else added
+    return System.currentTimeMillis() - millis in 0..NewWindowMs
+}
+
+private val GenreNames = mapOf(
+    "action" to "Acción",
+    "adventure" to "Aventura",
+    "comedy" to "Comedia",
+    "fantasy" to "Fantasía",
+    "horror" to "Terror",
+    "mystery" to "Misterio",
+    "psychological" to "Psicológico",
+    "sci-fi" to "Ciencia ficción",
+    "sci fi" to "Ciencia ficción",
+    "science fiction" to "Ciencia ficción",
+    "slice of life" to "Vida cotidiana",
+    "sports" to "Deportes",
+    "supernatural" to "Sobrenatural",
+    "thriller" to "Suspenso",
+    "suspense" to "Suspenso",
+    "music" to "Música",
+    "school" to "Escolar",
+    "historical" to "Histórico",
+    "military" to "Militar",
+    "magic" to "Magia",
+    "martial arts" to "Artes marciales",
+    "super power" to "Superpoderes",
+    "vampire" to "Vampiros",
+    "demons" to "Demonios",
+    "game" to "Juegos",
+    "parody" to "Parodia",
+    "space" to "Espacio",
+    "kids" to "Infantil",
+    "police" to "Policíaco",
+    "gourmet" to "Gastronomía",
+    "award winning" to "Premiada",
+)
+
+/** Display only: filtering keeps using the original genre name. */
+private fun genreLabel(name: String): String = GenreNames[name.trim().lowercase()] ?: name
+// ANZ <--
+
 @Composable
 internal fun LibraryHome(
     items: ImmutableList<LibraryDisplayItem>,
@@ -548,7 +603,7 @@ private fun LazyListScope.homeShelves(
     shelves.genres.forEach { genre ->
         shelf(
             key = "genre-${genre.name}",
-            title = genre.name,
+            title = genreLabel(genre.name),
             subtitle = "Tus series de este género",
             entries = genre.entries,
             selectedIds = selectedIds,
@@ -614,7 +669,7 @@ private fun LazyListScope.gridSection(
     val scope = "${tab.name}-${genre.orEmpty()}"
     item(key = "grid-header-$scope", contentType = "grid-header") {
         GridHeader(
-            title = genre ?: tabTitle(tab),
+            title = genre?.let { genreLabel(it) } ?: tabTitle(tab),
             count = count,
             onClear = if (genre != null) ({ actions.onOpenTab(LibraryHomeTab.All) }) else null,
         )
@@ -734,7 +789,7 @@ private fun HomeGreeting(
     val summary = if (watching > 0) {
         "$watching en curso · $episodesLeft episodios por ver"
     } else {
-        "$total series listas para ver"
+        "¿Qué vemos hoy? · $total series te esperan"
     }
     Row(
         modifier = modifier
@@ -901,19 +956,26 @@ private fun HeroCard(
     val anime = entry.anime
     val cover = remember(anime.id, anime.thumbnailUrl, anime.coverLastModified) { anime.asAnimeCover() }
     val shape = RoundedCornerShape(HeroRadius)
+    val (pressSource, pressScale) = rememberPress()
 
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = pressScale.value
+                scaleY = pressScale.value
+            }
             .clip(shape)
             .then(
                 if (isSelected) {
                     Modifier.border(3.dp, MaterialTheme.colorScheme.primary, shape)
                 } else {
-                    Modifier
+                    Modifier.border(1.dp, Color.White.copy(alpha = 0.14f), shape)
                 },
             )
             .combinedClickable(
+                interactionSource = pressSource,
+                indication = null,
                 onClick = { actions.onClick(entry) },
                 onLongClick = { actions.onLongClick(entry) },
             ),
@@ -953,7 +1015,8 @@ private fun HeroStatus(entry: LibraryAnime, modifier: Modifier = Modifier) {
     val label = when {
         entry.isFinished() -> "COMPLETADO"
         entry.hasStarted -> "EN CURSO"
-        else -> "NUEVO"
+        entry.isRecentlyAdded() -> "NUEVO"
+        else -> "POR EMPEZAR"
     }
     Row(
         modifier = modifier
@@ -964,7 +1027,10 @@ private fun HeroStatus(entry: LibraryAnime, modifier: Modifier = Modifier) {
         Box(
             modifier = Modifier
                 .size(7.dp)
-                .background(MaterialTheme.colorScheme.primary, CircleShape),
+                .background(
+                    if (entry.isFinished()) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
+                    CircleShape,
+                ),
         )
         Text(
             text = label,
@@ -1004,14 +1070,23 @@ private fun HeroInfo(item: LibraryItem, actions: HomeActions, modifier: Modifier
             overflow = TextOverflow.Ellipsis,
         )
         if (genres.isNotEmpty()) {
-            Text(
-                text = genres.joinToString("  •  "),
-                modifier = Modifier.padding(top = 4.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.75f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            FlowRow(
+                modifier = Modifier.padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                genres.forEach { g ->
+                    Text(
+                        text = genreLabel(g),
+                        modifier = Modifier
+                            .background(Color.White.copy(alpha = 0.16f), CircleShape)
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.92f),
+                        maxLines = 1,
+                    )
+                }
+            }
         }
         if (entry.totalEpisodes > 0) {
             if (entry.hasStarted) {
@@ -1285,8 +1360,8 @@ private fun GenreTilesShelf(
             contentPadding = PaddingValues(horizontal = EdgePadding),
             horizontalArrangement = Arrangement.spacedBy(CardGap),
         ) {
-            items(tiles, key = { it.name }) { tile ->
-                GenreTileCard(tile = tile, onClick = { actions.onOpenGenre(tile.name) })
+            itemsIndexed(tiles, key = { _, tile -> tile.name }) { index, tile ->
+                GenreTileCard(tile = tile, index = index, onClick = { actions.onOpenGenre(tile.name) })
             }
         }
     }
@@ -1297,20 +1372,30 @@ private fun GenreTilesShelf(
 // region Cards
 
 @Composable
-private fun GenreTileCard(tile: GenreTile, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun GenreTileCard(tile: GenreTile, index: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val anime = tile.cover.libraryAnime.anime
     val cover = remember(anime.id, anime.thumbnailUrl, anime.coverLastModified) { anime.asAnimeCover() }
-    val tint = remember(tile.name) {
-        GenreColors[((tile.name.lowercase().hashCode() % GenreColors.size) + GenreColors.size) % GenreColors.size]
-    }
+    // By position, so neighbouring tiles never share a colour.
+    val tint = GenreColors[index % GenreColors.size]
     val shape = RoundedCornerShape(TileRadius)
+    val (pressSource, pressScale) = rememberPress()
 
     Box(
         modifier = modifier
             .width(GenreTileWidth)
             .height(GenreTileHeight)
+            .graphicsLayer {
+                scaleX = pressScale.value
+                scaleY = pressScale.value
+            }
             .clip(shape)
-            .clickable(role = Role.Button, onClick = onClick),
+            .border(1.dp, Color.White.copy(alpha = 0.12f), shape)
+            .clickable(
+                interactionSource = pressSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            ),
     ) {
         AnimeCover.Book(
             data = cover,
@@ -1345,7 +1430,7 @@ private fun GenreTileCard(tile: GenreTile, onClick: () -> Unit, modifier: Modifi
                 .padding(12.dp),
         ) {
             Text(
-                text = tile.name,
+                text = genreLabel(tile.name),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -1377,11 +1462,12 @@ private fun ContinueCard(
     val cover = remember(anime.id, anime.thumbnailUrl, anime.coverLastModified) { anime.asAnimeCover() }
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(ContinueRadius)
+    val (pressSource, pressScale) = rememberPress()
 
     Row(
         modifier = modifier
             .graphicsLayer {
-                val scale = if (isSelected) SelectedScale else 1f
+                val scale = (if (isSelected) SelectedScale else 1f) * pressScale.value
                 scaleX = scale
                 scaleY = scale
             }
@@ -1392,7 +1478,12 @@ private fun ContinueCard(
                 color = if (isSelected) colors.primary else colors.onBackground.copy(alpha = 0.08f),
                 shape = shape,
             )
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(
+                interactionSource = pressSource,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1416,14 +1507,27 @@ private fun ContinueCard(
                 overflow = TextOverflow.Ellipsis,
             )
             if (entry.totalEpisodes > 0) {
-                Text(
-                    text = "${entry.seenCount} de ${entry.totalEpisodes} vistos",
+                Row(
                     modifier = Modifier.padding(top = 4.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = colors.onBackground.copy(alpha = 0.65f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "${entry.seenCount} de ${entry.totalEpisodes} vistos",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = colors.onBackground.copy(alpha = 0.65f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "${(progressOf(entry) * 100).toInt()}%",
+                        modifier = Modifier.padding(start = 6.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.primary,
+                        maxLines = 1,
+                    )
+                }
                 SlimProgress(
                     progress = progressOf(entry),
                     track = colors.onBackground.copy(alpha = 0.15f),
@@ -1469,16 +1573,22 @@ private fun PosterCard(
     val cover = remember(anime.id, anime.thumbnailUrl, anime.coverLastModified) { anime.asAnimeCover() }
     val shape = RoundedCornerShape(PosterRadius)
     val colors = MaterialTheme.colorScheme
+    val (pressSource, pressScale) = rememberPress()
 
     Column(
         modifier = modifier
             .graphicsLayer {
-                val scale = if (isSelected) SelectedScale else 1f
+                val scale = (if (isSelected) SelectedScale else 1f) * pressScale.value
                 scaleX = scale
                 scaleY = scale
             }
             .clip(shape)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .combinedClickable(
+                interactionSource = pressSource,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
     ) {
         Box(
             modifier = Modifier
@@ -1511,6 +1621,9 @@ private fun PosterCard(
                 UnseenTag(count = entry.unseenCount, modifier = Modifier.align(Alignment.TopStart))
             } else if (entry.isFinished()) {
                 FinishedTag(modifier = Modifier.align(Alignment.TopStart))
+            }
+            if (!entry.hasStarted && entry.isRecentlyAdded()) {
+                NewTag(modifier = Modifier.align(Alignment.BottomStart))
             }
             if (showProgress && entry.hasStarted && entry.totalEpisodes > 0) {
                 SlimProgress(
@@ -1643,6 +1756,35 @@ private fun GridRowContent(
 // endregion
 
 // region Small pieces
+
+/** Springy "pressed" feedback shared by every card: returns the interaction source and the scale. */
+@Composable
+private fun rememberPress(): Pair<MutableInteractionSource, State<Float>> {
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val scale = animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+        label = "press",
+    )
+    return source to scale
+}
+
+@Composable
+private fun NewTag(modifier: Modifier = Modifier) {
+    Text(
+        text = "NUEVO",
+        modifier = modifier
+            .padding(6.dp)
+            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        color = MaterialTheme.colorScheme.onPrimary,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.6.sp,
+        maxLines = 1,
+    )
+}
 
 @Composable
 private fun UnseenTag(count: Long, modifier: Modifier = Modifier) {
