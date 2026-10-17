@@ -1,5 +1,8 @@
 package eu.kanade.presentation.theme
 
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import eu.kanade.tachiyomi.R
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -16,7 +19,7 @@ val TachiyomiShapes = Shapes(
     extraLarge = RoundedCornerShape(24.dp),
 )
 
-val TachiyomiTypography = Typography(
+private val BaseTypography = Typography(
     displayLarge = TextStyle(
         fontWeight = FontWeight.Normal,
         fontSize = 57.sp,
@@ -108,3 +111,37 @@ val TachiyomiTypography = Typography(
         letterSpacing = 0.5.sp,
     ),
 )
+
+// ANZ -->
+/**
+ * Plus Jakarta Sans, bundled as a single variable font (res/font/plus_jakarta_sans.ttf): one file
+ * gives every weight. Characters it does not cover (kanji, macrons...) fall back to the system font.
+ */
+val AppFontFamily = FontFamily(
+    Font(R.font.plus_jakarta_sans, weight = FontWeight.Light),
+    Font(R.font.plus_jakarta_sans, weight = FontWeight.Normal),
+    Font(R.font.plus_jakarta_sans, weight = FontWeight.Medium),
+    Font(R.font.plus_jakarta_sans, weight = FontWeight.SemiBold),
+    Font(R.font.plus_jakarta_sans, weight = FontWeight.Bold),
+    Font(R.font.plus_jakarta_sans, weight = FontWeight.ExtraBold),
+    Font(R.font.plus_jakarta_sans, weight = FontWeight.Black),
+)
+
+val TachiyomiTypography: Typography = BaseTypography.copy(
+    displayLarge = BaseTypography.displayLarge.copy(fontFamily = AppFontFamily),
+    displayMedium = BaseTypography.displayMedium.copy(fontFamily = AppFontFamily),
+    displaySmall = BaseTypography.displaySmall.copy(fontFamily = AppFontFamily),
+    headlineLarge = BaseTypography.headlineLarge.copy(fontFamily = AppFontFamily),
+    headlineMedium = BaseTypography.headlineMedium.copy(fontFamily = AppFontFamily),
+    headlineSmall = BaseTypography.headlineSmall.copy(fontFamily = AppFontFamily),
+    titleLarge = BaseTypography.titleLarge.copy(fontFamily = AppFontFamily),
+    titleMedium = BaseTypography.titleMedium.copy(fontFamily = AppFontFamily),
+    titleSmall = BaseTypography.titleSmall.copy(fontFamily = AppFontFamily),
+    bodyLarge = BaseTypography.bodyLarge.copy(fontFamily = AppFontFamily),
+    bodyMedium = BaseTypography.bodyMedium.copy(fontFamily = AppFontFamily),
+    bodySmall = BaseTypography.bodySmall.copy(fontFamily = AppFontFamily),
+    labelLarge = BaseTypography.labelLarge.copy(fontFamily = AppFontFamily),
+    labelMedium = BaseTypography.labelMedium.copy(fontFamily = AppFontFamily),
+    labelSmall = BaseTypography.labelSmall.copy(fontFamily = AppFontFamily),
+)
+// ANZ <--
