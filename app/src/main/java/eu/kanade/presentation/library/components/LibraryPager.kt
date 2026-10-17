@@ -93,6 +93,8 @@ fun LibraryPager(
                     onClickContinueWatching = onClickContinueWatching,
                     onFolderClick = onFolderClick,
                     onFolderLongClick = onFolderLongClick,
+                    searchQuery = searchQuery,
+                    onGlobalSearchClicked = onGlobalSearchClicked,
                 )
                 return@HorizontalPager
             }

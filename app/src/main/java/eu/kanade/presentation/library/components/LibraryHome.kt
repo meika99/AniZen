@@ -1,5 +1,13 @@
 package eu.kanade.presentation.library.components
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.PagerSnapDistance
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -111,7 +119,9 @@ import tachiyomi.domain.library.model.LibraryDisplayMode
 
 /** Whether the library page should render the new home layout instead of the classic grid. */
 internal fun shouldUseLibraryHome(searchQuery: String?, displayMode: LibraryDisplayMode): Boolean {
-    return searchQuery.isNullOrEmpty() && displayMode != LibraryDisplayMode.List
+    // Search results use the same modern cards (see the search section of [LibraryHome]);
+    // only the List display mode keeps the classic layout.
+    return displayMode != LibraryDisplayMode.List
 }
 
 private enum class LibraryHomeTab(val label: String) {
@@ -134,8 +144,8 @@ private val ShelfSpacing = 28.dp
 private val BottomSpace = 28.dp
 private val HeroRadius = 26.dp
 private val HeroSpacing = 10.dp
-private val HeroPeek = 28.dp
-private val HeroMaxWidth = 360.dp
+private val HeroPeek = 22.dp
+private val HeroMaxWidth = 380.dp
 private val HeroMinHeight = 300.dp
 private val GenreTileWidth = 156.dp
 private val GenreTileHeight = 92.dp
@@ -146,9 +156,9 @@ private val ToolbarFadeDistance = 240.dp
 /** Changes every time the app process starts, so the hero carousel is different on every launch. */
 private val SessionSeed: Long = System.nanoTime()
 
-private const val HeroHeightRatio = 1.3f
-private const val HeroScreenFraction = 0.58f
-private const val HeroAutoAdvanceMs = 7000L
+private const val HeroHeightRatio = 1.45f
+private const val HeroScreenFraction = 0.6f
+private const val HeroAutoAdvanceMs = 5000L
 private const val AmbientStrength = 0.55f
 private const val AmbientFallback = 0.14f
 private const val SelectedScale = 0.95f
@@ -448,7 +458,10 @@ internal fun LibraryHome(
     onFolderClick: ((LibraryDisplayItem.Folder) -> Unit)?,
     onFolderLongClick: ((LibraryDisplayItem.Folder) -> Unit)?,
     modifier: Modifier = Modifier,
+    searchQuery: String? = null,
+    onGlobalSearchClicked: (() -> Unit)? = null,
 ) {
+    val searching = !searchQuery.isNullOrEmpty()
     val flat = remember(items) { flattenAnime(items) }
     var heroSeed by rememberSaveable { mutableStateOf(SessionSeed) }
     val shelves = remember(flat, heroSeed) { buildShelves(flat, heroSeed) }
@@ -488,6 +501,20 @@ internal fun LibraryHome(
     LaunchedEffect(heroSeed) { heroPager.scrollToPage(0) }
     val gridRows = remember(tab, genre, items, flat, columns) { buildGridRows(tab, genre, items, flat, columns) }
     val gridCount = remember(gridRows) { gridRows.sumOf { (it as? GridRow.Cells)?.cells?.size ?: 0 } }
+    // Search results: one flat grid of the same cards, without headers or folders.
+    val searchRows = remember(searching, flat, columns) {
+        if (searching) {
+            buildGridRows(
+                LibraryHomeTab.All,
+                null,
+                flat.map { LibraryDisplayItem.Anime(it) },
+                flat,
+                columns,
+            )
+        } else {
+            emptyList()
+        }
+    }
 
     val actions = remember(onClick, onLongClick, onClickContinueWatching, onFolderClick, onFolderLongClick) {
         HomeActions(
@@ -508,37 +535,52 @@ internal fun LibraryHome(
         )
     }
 
-    LaunchedEffect(tab, genre) { listState.scrollToItem(0) }
+    BackHandler(enabled = !searching && tab != LibraryHomeTab.Home) {
+        actions.onOpenTab(LibraryHomeTab.Home)
+    }
+
+    LaunchedEffect(tab, genre, searchQuery) { listState.scrollToItem(0) }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         state = listState,
         contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding() + BottomSpace),
     ) {
-        item(key = "top", contentType = "top") {
-            HomeTop(
-                tab = tab,
-                counts = counts,
-                episodesLeft = episodesLeft,
-                ambientOwner = ambientOwner,
-                heroes = shelves.heroes,
-                pagerState = heroPager,
-                selectedIds = selectedIds,
-                actions = actions,
-            )
-        }
-        if (tab == LibraryHomeTab.Home) {
-            homeShelves(shelves = shelves, total = flat.size, selectedIds = selectedIds, actions = actions)
-        } else {
-            gridSection(
-                tab = tab,
-                genre = genre,
-                count = gridCount,
-                rows = gridRows,
+        if (searching) {
+            searchSection(
+                query = searchQuery.orEmpty(),
+                rows = searchRows,
                 columns = columns,
                 selectedIds = selectedIds,
                 actions = actions,
+                onGlobalSearch = onGlobalSearchClicked,
             )
+        } else {
+            item(key = "top", contentType = "top") {
+                HomeTop(
+                    tab = tab,
+                    counts = counts,
+                    episodesLeft = episodesLeft,
+                    ambientOwner = ambientOwner,
+                    heroes = shelves.heroes,
+                    pagerState = heroPager,
+                    selectedIds = selectedIds,
+                    actions = actions,
+                )
+            }
+            if (tab == LibraryHomeTab.Home) {
+                homeShelves(shelves = shelves, total = flat.size, selectedIds = selectedIds, actions = actions)
+            } else {
+                gridSection(
+                    tab = tab,
+                    genre = genre,
+                    count = gridCount,
+                    rows = gridRows,
+                    columns = columns,
+                    selectedIds = selectedIds,
+                    actions = actions,
+                )
+            }
         }
     }
 }
@@ -671,6 +713,7 @@ private fun LazyListScope.gridSection(
         GridHeader(
             title = genre?.let { genreLabel(it) } ?: tabTitle(tab),
             count = count,
+            onBack = { actions.onOpenTab(LibraryHomeTab.Home) },
             onClear = if (genre != null) ({ actions.onOpenTab(LibraryHomeTab.All) }) else null,
         )
     }
@@ -706,6 +749,73 @@ private fun LazyListScope.gridSection(
                 selectedIds = selectedIds,
                 showProgress = tab == LibraryHomeTab.Watching && genre == null,
                 actions = actions,
+            )
+        }
+    }
+}
+
+private fun LazyListScope.searchSection(
+    query: String,
+    rows: List<GridRow>,
+    columns: Int,
+    selectedIds: Set<Long>,
+    actions: HomeActions,
+    onGlobalSearch: (() -> Unit)?,
+) {
+    val count = rows.sumOf { (it as? GridRow.Cells)?.cells?.size ?: 0 }
+    item(key = "search-header", contentType = "search-header") {
+        SearchHeader(query = query, count = count, onGlobalSearch = onGlobalSearch)
+    }
+    itemsIndexed(
+        items = rows,
+        key = { index, _ -> "search-$index" },
+        contentType = { _, _ -> "grid-cells" },
+    ) { _, row ->
+        if (row is GridRow.Cells) {
+            GridRowContent(
+                cells = row.cells,
+                columns = columns,
+                selectedIds = selectedIds,
+                showProgress = false,
+                actions = actions,
+            )
+        }
+    }
+}
+
+/** Result count + the "search everywhere" pill, over the same soft tint the toolbar uses. */
+@Composable
+private fun SearchHeader(query: String, count: Int, onGlobalSearch: (() -> Unit)?) {
+    val colors = MaterialTheme.colorScheme
+    val ambient = LibraryHomeAmbient.color ?: colors.background
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(ambient, colors.background)))
+            .padding(horizontal = EdgePadding)
+            .padding(top = 18.dp, bottom = 16.dp),
+    ) {
+        Text(
+            text = if (count == 1) "1 resultado" else "$count resultados",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = (-0.3).sp,
+        )
+        Text(
+            text = "en tu biblioteca para «$query»",
+            modifier = Modifier.padding(top = 2.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.onBackground.copy(alpha = 0.65f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (onGlobalSearch != null) {
+            GlobalSearchItem(
+                searchQuery = query,
+                onClick = onGlobalSearch,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 14.dp),
             )
         }
     }
@@ -747,14 +857,11 @@ private fun HomeTop(
             .background(Brush.verticalGradient(listOf(ambient, background))),
     ) {
         if (tab == LibraryHomeTab.Home) {
-            HomeGreeting(
-                watching = counts[LibraryHomeTab.Watching] ?: 0,
-                total = counts[LibraryHomeTab.All] ?: 0,
-                episodesLeft = episodesLeft,
-                onShuffle = actions.onShuffle,
-            )
+            HomeGreeting(onShuffle = actions.onShuffle)
+            Spacer(Modifier.height(14.dp))
+        } else {
+            Spacer(Modifier.height(12.dp))
         }
-        TabChips(selected = tab, counts = counts, onSelected = actions.onOpenTab)
         if (current != null) {
             Hero(
                 heroes = heroes,
@@ -778,19 +885,11 @@ private fun timeGreeting(): String {
 
 @Composable
 private fun HomeGreeting(
-    watching: Int,
-    total: Int,
-    episodesLeft: Long,
     onShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val greeting = remember { timeGreeting() }
     val onBackground = MaterialTheme.colorScheme.onBackground
-    val summary = if (watching > 0) {
-        "$watching en curso · $episodesLeft episodios por ver"
-    } else {
-        "¿Qué vemos hoy? · $total series te esperan"
-    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -806,7 +905,7 @@ private fun HomeGreeting(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = summary,
+                text = "¿Qué vemos hoy?",
                 modifier = Modifier.padding(top = 2.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = onBackground.copy(alpha = 0.7f),
@@ -834,58 +933,6 @@ private fun HomeGreeting(
 }
 
 @Composable
-private fun TabChips(
-    selected: LibraryHomeTab,
-    counts: Map<LibraryHomeTab, Int>,
-    onSelected: (LibraryHomeTab) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    LazyRow(
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = EdgePadding, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(LibraryHomeTab.entries, key = { it.name }) { tab ->
-            HomeChip(
-                label = tab.label,
-                count = counts[tab],
-                selected = tab == selected,
-                onClick = { onSelected(tab) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun HomeChip(label: String, count: Int?, selected: Boolean, onClick: () -> Unit) {
-    val onBackground = MaterialTheme.colorScheme.onBackground
-    val content = if (selected) MaterialTheme.colorScheme.background else onBackground
-    Row(
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(if (selected) onBackground else onBackground.copy(alpha = 0.12f))
-            .clickable(role = Role.Tab, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            color = content,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-        )
-        if (count != null) {
-            Text(
-                text = count.toString(),
-                modifier = Modifier.padding(start = 6.dp),
-                color = content.copy(alpha = 0.6f),
-                style = MaterialTheme.typography.labelMedium,
-            )
-        }
-    }
-}
-
-@Composable
 private fun Hero(
     heroes: ImmutableList<LibraryItem>,
     pagerState: PagerState,
@@ -899,7 +946,10 @@ private fun Hero(
         if (heroes.size > 1) {
             delay(HeroAutoAdvanceMs)
             while (pagerState.isScrollInProgress) delay(500)
-            pagerState.animateScrollToPage((pagerState.currentPage + 1) % heroes.size)
+            pagerState.animateScrollToPage(
+                page = (pagerState.currentPage + 1) % heroes.size,
+                animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+            )
         }
     }
 
@@ -912,11 +962,18 @@ private fun Hero(
         val sidePadding = (maxWidth - cardWidth) / 2
         val ratio = cardWidth.value / cardHeight.value
 
+        // Quicker snap after a swipe (the stock spring felt sluggish).
+        val fling = PagerDefaults.flingBehavior(
+            state = pagerState,
+            pagerSnapDistance = PagerSnapDistance.atMost(1),
+            snapAnimationSpec = spring(dampingRatio = 0.9f, stiffness = 900f),
+        )
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             HorizontalPager(
                 state = pagerState,
                 contentPadding = PaddingValues(horizontal = sidePadding),
                 pageSpacing = HeroSpacing,
+                flingBehavior = fling,
                 key = { index -> heroes.getOrNull(index)?.libraryAnime?.id ?: index },
             ) { page ->
                 val item = heroes.getOrNull(page) ?: return@HorizontalPager
@@ -925,6 +982,7 @@ private fun Hero(
                     ratio = ratio,
                     isSelected = item.libraryAnime.id in selectedIds,
                     actions = actions,
+                    pageOffset = { (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction },
                     modifier = Modifier.graphicsLayer {
                         val distance = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
                             .absoluteValue
@@ -950,6 +1008,7 @@ private fun HeroCard(
     ratio: Float,
     isSelected: Boolean,
     actions: HomeActions,
+    pageOffset: () -> Float,
     modifier: Modifier = Modifier,
 ) {
     val entry = item.libraryAnime
@@ -982,63 +1041,51 @@ private fun HeroCard(
     ) {
         // The hero cover is the one that seeds the ambient colour of the whole screen. The poster
         // fills the card (small crop) and the info sits over a dark fade at the bottom.
+        // Parallax: while swiping, the artwork drifts slower than its frame (and zooms a little so
+        // no edge shows). At rest it is untouched.
         AnimeCover.Book(
             data = cover,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    val offset = pageOffset().coerceIn(-1f, 1f)
+                    val zoom = 1f + 0.24f * offset.absoluteValue
+                    scaleX = zoom
+                    scaleY = zoom
+                    translationX = offset * size.width * 0.12f
+                },
             shape = RectangleShape,
             shouldExtractColor = true,
             measureRatio = false,
             ratio = ratio,
         )
+        // Light fade: only the lower part darkens, the upper half is pure artwork.
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Transparent,
-                        0.34f to Color.Transparent,
-                        0.74f to Color.Black.copy(alpha = 0.80f),
-                        1f to Color.Black.copy(alpha = 0.96f),
+                        0.45f to Color.Transparent,
+                        0.72f to Color.Black.copy(alpha = 0.72f),
+                        1f to Color.Black.copy(alpha = 0.95f),
                     ),
                 ),
         )
-        HeroStatus(entry = entry, modifier = Modifier.align(Alignment.TopStart).padding(14.dp))
         if (isSelected) {
             SelectedMark(modifier = Modifier.align(Alignment.TopEnd))
         }
-        HeroInfo(item = item, actions = actions, modifier = Modifier.align(Alignment.BottomStart))
-    }
-}
-
-@Composable
-private fun HeroStatus(entry: LibraryAnime, modifier: Modifier = Modifier) {
-    val label = when {
-        entry.isFinished() -> "COMPLETADO"
-        entry.hasStarted -> "EN CURSO"
-        entry.isRecentlyAdded() -> "NUEVO"
-        else -> "POR EMPEZAR"
-    }
-    Row(
-        modifier = modifier
-            .background(Color.Black.copy(alpha = 0.45f), CircleShape)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
+        HeroInfo(
+            item = item,
+            actions = actions,
             modifier = Modifier
-                .size(7.dp)
-                .background(
-                    if (entry.isFinished()) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
-                    CircleShape,
-                ),
-        )
-        Text(
-            text = label,
-            modifier = Modifier.padding(start = 6.dp),
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp,
+                .align(Alignment.BottomStart)
+                .graphicsLayer {
+                    // Title and button settle in as the card reaches the centre.
+                    val distance = pageOffset().absoluteValue.coerceIn(0f, 1f)
+                    alpha = (1f - 1.6f * distance).coerceIn(0f, 1f)
+                    translationY = 28.dp.toPx() * distance
+                },
         )
     }
 }
@@ -1054,105 +1101,58 @@ private fun HeroInfo(item: LibraryItem, actions: HomeActions, modifier: Modifier
         entry.hasStarted -> "Continuar viendo"
         else -> "Empezar a ver"
     }
-    val genres = anime.genre.orEmpty().map { it.trim() }.filter { it.isNotEmpty() }.take(3)
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 18.dp, end = 18.dp, bottom = 18.dp),
+            .padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
     ) {
         Text(
             text = anime.title,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.headlineSmall.copy(
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.55f),
+                    offset = Offset(0f, 2f),
+                    blurRadius = 14f,
+                ),
+            ),
+            fontWeight = FontWeight.ExtraBold,
             color = Color.White,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        if (genres.isNotEmpty()) {
-            FlowRow(
-                modifier = Modifier.padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                genres.forEach { g ->
-                    Text(
-                        text = genreLabel(g),
-                        modifier = Modifier
-                            .background(Color.White.copy(alpha = 0.16f), CircleShape)
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White.copy(alpha = 0.92f),
-                        maxLines = 1,
-                    )
-                }
-            }
+        if (entry.hasStarted && !entry.isFinished() && entry.totalEpisodes > 0) {
+            SlimProgress(
+                progress = progressOf(entry),
+                track = Color.White.copy(alpha = 0.25f),
+                fill = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 12.dp),
+            )
         }
-        if (entry.totalEpisodes > 0) {
-            if (entry.hasStarted) {
-                SlimProgress(
-                    progress = progressOf(entry),
-                    track = Color.White.copy(alpha = 0.25f),
-                    fill = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-                Text(
-                    text = progressLabel(entry),
-                    modifier = Modifier.padding(top = 6.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.8f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            } else {
-                Text(
-                    text = "${entry.totalEpisodes} episodios",
-                    modifier = Modifier.padding(top = 10.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.8f),
-                )
-            }
-        }
-        Row(
-            modifier = Modifier.padding(top = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // One single action: the whole card also opens the details.
+        Button(
+            onClick = {
+                if (canPlay && play != null) play(entry) else actions.onClick(entry)
+            },
+            modifier = Modifier
+                .padding(top = 14.dp)
+                .fillMaxWidth()
+                .height(48.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.White,
+                contentColor = Color.Black,
+            ),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
         ) {
-            Button(
-                onClick = {
-                    if (canPlay && play != null) play(entry) else actions.onClick(entry)
-                },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White,
-                    contentColor = Color.Black,
-                ),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-            ) {
-                if (canPlay) {
-                    Icon(
-                        imageVector = Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                }
-                Text(text = label, fontWeight = FontWeight.Bold, maxLines = 1)
-            }
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.2f))
-                    .clickable(role = Role.Button, onClick = { actions.onClick(entry) }),
-                contentAlignment = Alignment.Center,
-            ) {
+            if (canPlay) {
                 Icon(
-                    imageVector = Icons.Outlined.Info,
-                    contentDescription = "Detalles",
-                    tint = Color.White,
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
                 )
+                Spacer(Modifier.width(6.dp))
             }
+            Text(text = label, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
@@ -1658,7 +1658,7 @@ private fun PosterCard(
 // region Grid ("Todos", "En curso", ...)
 
 @Composable
-private fun GridHeader(title: String, count: Int, onClear: (() -> Unit)?) {
+private fun GridHeader(title: String, count: Int, onBack: () -> Unit, onClear: (() -> Unit)?) {
     val onBackground = MaterialTheme.colorScheme.onBackground
     Row(
         modifier = Modifier
@@ -1667,6 +1667,22 @@ private fun GridHeader(title: String, count: Int, onClear: (() -> Unit)?) {
             .padding(top = 4.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            modifier = Modifier
+                .padding(end = 12.dp)
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(onBackground.copy(alpha = 0.12f))
+                .clickable(role = Role.Button, onClick = onBack),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Volver al inicio",
+                tint = onBackground,
+                modifier = Modifier.size(20.dp),
+            )
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,

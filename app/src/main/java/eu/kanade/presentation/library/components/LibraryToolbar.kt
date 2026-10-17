@@ -147,6 +147,19 @@ private fun LibraryRegularToolbar(
                 }
             },
         ) {
+        if (searchQuery != null) {
+            LibrarySearchBar(
+                query = searchQuery,
+                onQueryChange = onSearchQueryChange,
+                hasFilters = hasFilters,
+                onClickFilter = onClickFilter,
+                onClickRefresh = onClickRefresh,
+                onClickGlobalUpdate = onClickGlobalUpdate,
+                onClickOpenRandomEntry = onClickOpenRandomEntry,
+                onClickSyncNow = onClickSyncNow,
+                scrollBehavior = scrollBehavior,
+            )
+        } else {
         SearchToolbar(
             titleContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -226,10 +239,142 @@ private fun LibraryRegularToolbar(
             navigateUp = navigateUp,
         )
         }
+        }
     }
 }
 
 private const val ToolbarMaxFade = 0.55f
+
+/** Search mode: the query lives in a rounded pill with the search glyph and a clear button. */
+@Composable
+private fun LibrarySearchBar(
+    query: String,
+    onQueryChange: (String?) -> Unit,
+    hasFilters: Boolean,
+    onClickFilter: () -> Unit,
+    onClickRefresh: () -> Unit,
+    onClickGlobalUpdate: () -> Unit,
+    onClickOpenRandomEntry: () -> Unit,
+    onClickSyncNow: () -> Unit,
+    scrollBehavior: TopAppBarScrollBehavior?,
+) {
+    val colors = MaterialTheme.colorScheme
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val requestKeyboard = rememberSaveable { mutableStateOf(query.isEmpty()) }
+    LaunchedEffect(focusRequester) {
+        if (requestKeyboard.value) {
+            focusRequester.requestFocus()
+            requestKeyboard.value = false
+        }
+    }
+    val hideKeyboard: () -> Unit = {
+        focusManager.clearFocus()
+        keyboard?.hide()
+    }
+
+    AppBar(
+        titleContent = {
+            // Same workaround as the stock search bar: a harmless place for bounced focus.
+            Box(modifier = Modifier.size(1.dp).focusable())
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .clip(CircleShape)
+                    .background(colors.onSurface.copy(alpha = 0.09f))
+                    .border(1.dp, colors.primary.copy(alpha = 0.28f), CircleShape)
+                    .padding(start = 16.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = colors.primary,
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 10.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (query.isEmpty()) {
+                        Text(
+                            text = stringResource(MR.strings.action_search_hint),
+                            color = colors.onSurface.copy(alpha = 0.5f),
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    BasicTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                            .runOnEnterKeyPressed(action = hideKeyboard)
+                            .clearFocusOnSoftKeyboardHide(),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { hideKeyboard() }),
+                        singleLine = true,
+                        cursorBrush = SolidColor(colors.primary),
+                    )
+                }
+                if (query.isNotEmpty()) {
+                    IconButton(
+                        onClick = {
+                            onQueryChange("")
+                            focusRequester.requestFocus()
+                        },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = stringResource(MR.strings.action_reset),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+        },
+        navigateUp = { onQueryChange(null) },
+        actions = {
+            val filterTint = if (hasFilters) colors.active else LocalContentColor.current
+            AppBarActions(
+                persistentListOf<AppBar.AppBarAction>(
+                    AppBar.Action(
+                        title = stringResource(MR.strings.action_filter),
+                        icon = Icons.Outlined.FilterList,
+                        iconTint = filterTint,
+                        onClick = onClickFilter,
+                    ),
+                    AppBar.OverflowAction(
+                        title = stringResource(MR.strings.action_update_library),
+                        onClick = onClickGlobalUpdate,
+                    ),
+                    AppBar.OverflowAction(
+                        title = stringResource(MR.strings.action_update_category),
+                        onClick = onClickRefresh,
+                    ),
+                    AppBar.OverflowAction(
+                        title = stringResource(MR.strings.action_open_random_manga),
+                        onClick = onClickOpenRandomEntry,
+                    ),
+                    AppBar.OverflowAction(
+                        title = stringResource(SYMR.strings.sync_library),
+                        onClick = onClickSyncNow,
+                    ),
+                ),
+            )
+        },
+        isActionMode = false,
+        scrollBehavior = scrollBehavior,
+    )
+}
 // ANZ <--
 
 @Composable
