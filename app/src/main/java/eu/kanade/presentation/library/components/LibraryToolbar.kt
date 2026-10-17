@@ -1,5 +1,8 @@
 package eu.kanade.presentation.library.components
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Row
@@ -98,10 +101,32 @@ private fun LibraryRegularToolbar(
     val capsuleAlpha = if (isSystemInDarkTheme()) 0.12f else 0.08f
 
     val ambient = LibraryHomeAmbient.color
-    val tinted = if (ambient != null) lerp(ambient, colors.surface, LibraryHomeAmbient.fade) else null
+    // Never fades all the way to plain surface: scrolling keeps a part of the tint so the bar does
+    // not jump to black, and a hairline at the bottom edge appears as the content slides under it.
+    val tinted = if (ambient != null) {
+        lerp(ambient, colors.surface, LibraryHomeAmbient.fade * ToolbarMaxFade)
+    } else {
+        null
+    }
+    val hairline = colors.onSurface
 
     // The app bar paints `surface`, so overriding it here is enough to tint the bar.
     MaterialTheme(colorScheme = if (tinted != null) colors.copy(surface = tinted) else colors) {
+        Box(
+            modifier = Modifier.drawWithContent {
+                drawContent()
+                val edge = LibraryHomeAmbient.fade
+                if (edge > 0f) {
+                    val y = size.height - 0.5.dp.toPx()
+                    drawLine(
+                        color = hairline.copy(alpha = 0.10f * edge),
+                        start = Offset(0f, y),
+                        end = Offset(size.width, y),
+                        strokeWidth = 1.dp.toPx(),
+                    )
+                }
+            },
+        ) {
         SearchToolbar(
             titleContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -180,8 +205,11 @@ private fun LibraryRegularToolbar(
             scrollBehavior = scrollBehavior,
             navigateUp = navigateUp,
         )
+        }
     }
 }
+
+private const val ToolbarMaxFade = 0.55f
 // ANZ <--
 
 @Composable
