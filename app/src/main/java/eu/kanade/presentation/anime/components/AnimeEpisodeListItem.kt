@@ -7,6 +7,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -14,12 +15,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkRemove
 import androidx.compose.material.icons.outlined.Delete
@@ -27,6 +30,7 @@ import androidx.compose.material.icons.outlined.Done
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FileDownloadOff
 import androidx.compose.material.icons.outlined.RemoveDone
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -190,6 +194,9 @@ fun AnimeEpisodeListItem(
     }
 }
 
+// ANZ -->
+private const val SeenAlpha = 0.55f
+
 @Composable
 private fun EpisodeItemRow(
     title: String,
@@ -221,145 +228,47 @@ private fun EpisodeItemRow(
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
-            .padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.Top,
+            .padding(start = 16.dp, top = 10.dp, end = 8.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (previewUrl.isNullOrBlank() && summary.isNullOrBlank()) {
-            SimpleEpisodeListItemImpl(
-                title = title,
+        if (!previewUrl.isNullOrBlank()) {
+            EpisodeThumbnail(previewUrl = previewUrl, seen = seen)
+        } else {
+            EpisodeBadge(seen = seen)
+        }
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp, end = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = LocalContentColor.current.copy(alpha = if (seen) SeenAlpha else 1f),
+            )
+            EpisodeInformation(
+                seen = seen,
                 date = date,
                 watchProgress = watchProgress,
                 fillermark = fillermark,
                 isAutoFiller = isAutoFiller,
                 scanlator = scanlator,
-                seen = seen,
-                bookmark = bookmark,
-                downloadIndicatorEnabled = downloadIndicatorEnabled,
-                downloadStateProvider = downloadStateProvider,
-                downloadProgressProvider = downloadProgressProvider,
-                onDownloadClick = onDownloadClick,
-                fileSize = fileSize,
             )
-            return@Row
+            EpisodeSummary(
+                seen = seen,
+                isAnyEpisodeSelected = isAnyEpisodeSelected,
+                summary = summary,
+            )
         }
 
-        Column {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                EpisodeThumbnail(previewUrl = previewUrl)
-
-                Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        val titleLines = if (previewUrl == null) 1 else 2
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 14.sp),
-                            modifier = Modifier.weight(1f),
-                            maxLines = titleLines,
-                            minLines = titleLines,
-                            overflow = TextOverflow.Ellipsis,
-                            color = LocalContentColor.current.copy(alpha = if (seen) DISABLED_ALPHA else 1f),
-                        )
-
-                        if (previewUrl == null) {
-                            Column(horizontalAlignment = Alignment.End) {
-                                BookmarkDownloadIcons(
-                                    bookmark = bookmark,
-                                    downloadIndicatorEnabled = downloadIndicatorEnabled,
-                                    downloadStateProvider = downloadStateProvider,
-                                    downloadProgressProvider = downloadProgressProvider,
-                                    onDownloadClick = onDownloadClick,
-                                    fileSize = fileSize,
-                                )
-                            }
-                        }
-                    }
-
-                    EpisodeSummary(
-                        seen = seen,
-                        isAnyEpisodeSelected = isAnyEpisodeSelected,
-                        summary = summary,
-                    )
-                }
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                EpisodeInformation(
-                    seen = seen,
-                    date = date,
-                    watchProgress = watchProgress,
-                    fillermark = fillermark,
-                    isAutoFiller = isAutoFiller,
-                    scanlator = scanlator,
-                )
-
-                if (previewUrl != null) {
-                    Column(horizontalAlignment = Alignment.End) {
-                        BookmarkDownloadIcons(
-                            bookmark = bookmark,
-                            downloadIndicatorEnabled = downloadIndicatorEnabled,
-                            downloadStateProvider = downloadStateProvider,
-                            downloadProgressProvider = downloadProgressProvider,
-                            onDownloadClick = onDownloadClick,
-                            fileSize = fileSize,
-                        )
-                    }
-                }
-            }
+        if (seen) {
+            SeenCheck()
         }
-    }
-}
 
-@Composable
-private fun RowScope.SimpleEpisodeListItemImpl(
-    title: String,
-    date: String?,
-    watchProgress: String?,
-    fillermark: Boolean,
-    isAutoFiller: Boolean,
-    scanlator: String?,
-    seen: Boolean,
-    bookmark: Boolean,
-    downloadIndicatorEnabled: Boolean,
-    downloadStateProvider: () -> Download.State,
-    downloadProgressProvider: () -> Int,
-    onDownloadClick: ((EpisodeDownloadAction) -> Unit)?,
-    fileSize: Long?,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier.weight(1f),
-        verticalArrangement = Arrangement.spacedBy(if (fillermark) 0.dp else 6.dp),
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = LocalContentColor.current.copy(alpha = if (seen) DISABLED_ALPHA else 1f),
-        )
-
-        EpisodeInformation(
-            seen = seen,
-            date = date,
-            watchProgress = watchProgress,
-            fillermark = fillermark,
-            isAutoFiller = isAutoFiller,
-            scanlator = scanlator,
-        )
-    }
-
-    Column(horizontalAlignment = Alignment.End) {
         BookmarkDownloadIcons(
             bookmark = bookmark,
             downloadIndicatorEnabled = downloadIndicatorEnabled,
@@ -371,20 +280,75 @@ private fun RowScope.SimpleEpisodeListItemImpl(
     }
 }
 
+/** Leading badge for episodes without a thumbnail. */
+@Composable
+private fun EpisodeBadge(seen: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (seen) colors.onSurface.copy(alpha = 0.06f) else colors.primary.copy(alpha = 0.14f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.PlayArrow,
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = if (seen) colors.onSurface.copy(alpha = 0.4f) else colors.primary,
+        )
+    }
+}
+
+/** Seen state, kept discreet on the right edge of the row. */
+@Composable
+private fun SeenCheck() {
+    Box(
+        modifier = Modifier
+            .padding(horizontal = 4.dp)
+            .size(22.dp)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Done,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
 @Composable
 private fun EpisodeThumbnail(
     previewUrl: String?,
+    seen: Boolean,
 ) {
-    val targetWidth = ((LocalConfiguration.current.screenWidthDp * 0.4f).coerceAtMost(250f))
-    if (!previewUrl.isNullOrBlank()) {
+    if (previewUrl.isNullOrBlank()) return
+    val targetWidth = (LocalConfiguration.current.screenWidthDp * 0.34f).coerceIn(112f, 168f)
+    Box(modifier = Modifier.width(targetWidth.dp)) {
         AnimeCover.Square(
             data = previewUrl,
             modifier = Modifier
-                .width(targetWidth.dp)
-                .padding(end = 8.dp),
+                .fillMaxWidth()
+                .alpha(if (seen) SeenAlpha else 1f),
             ratio = 16f / 9f,
-            shape = MaterialTheme.shapes.small,
+            shape = RoundedCornerShape(14.dp),
         )
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(34.dp)
+                .background(Color.Black.copy(alpha = if (seen) 0.35f else 0.5f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.PlayArrow,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = Color.White,
+            )
+        }
     }
 }
 
@@ -398,23 +362,20 @@ private fun EpisodeSummary(
     if (!summary.isNullOrBlank()) {
         Text(
             text = summary,
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = if (expanded) Int.MAX_VALUE else 3,
-            fontWeight = FontWeight.Normal,
-            fontSize = 10.sp,
-            lineHeight = 11.sp,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = if (expanded) Int.MAX_VALUE else 2,
+            fontSize = 12.sp,
+            lineHeight = 16.sp,
             overflow = TextOverflow.Ellipsis,
             color = LocalContentColor.current.copy(
                 alpha = if (seen) DISABLED_ALPHA else SECONDARY_ALPHA,
             ),
-            modifier = Modifier
-                .padding(bottom = 4.dp, start = 4.dp, end = 4.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    enabled = !isAnyEpisodeSelected,
-                    onClick = { expanded = !expanded },
-                ),
+            modifier = Modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = !isAnyEpisodeSelected,
+                onClick = { expanded = !expanded },
+            ),
         )
     }
 }
@@ -431,15 +392,13 @@ private fun EpisodeInformation(
     Row(verticalAlignment = Alignment.CenterVertically) {
         val subtitleStyle = MaterialTheme.typography.bodySmall
             .merge(color = LocalContentColor.current.copy(alpha = if (seen) DISABLED_ALPHA else SECONDARY_ALPHA))
-        
+
         if (!seen) {
-            Icon(
-                imageVector = Icons.Filled.Circle,
-                contentDescription = stringResource(MR.strings.unseen),
+            Box(
                 modifier = Modifier
-                    .height(8.dp)
-                    .padding(end = 4.dp),
-                tint = MaterialTheme.colorScheme.primary,
+                    .padding(end = 6.dp)
+                    .size(6.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
             )
         }
         if (fillermark) {
@@ -458,7 +417,7 @@ private fun EpisodeInformation(
                     color = MaterialTheme.colorScheme.tertiary,
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontWeight = FontWeight.Bold,
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                     ),
                 )
             }
@@ -494,6 +453,7 @@ private fun EpisodeInformation(
         }
     }
 }
+// ANZ <--
 
 @Composable
 private fun BookmarkDownloadIcons(
@@ -585,35 +545,41 @@ fun NextEpisodeAiringListItem(
     date: String,
     modifier: Modifier = Modifier,
 ) {
+    // ANZ -->
     Row(
-        modifier = modifier.padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Icon(
+            imageVector = Icons.Outlined.Schedule,
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.alpha(SECONDARY_ALPHA),
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(modifier = Modifier.alpha(SECONDARY_ALPHA)) {
-                ProvideTextStyle(
-                    value = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
-                ) {
-                    Text(
-                        text = date,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = date,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
+    // ANZ <--
 }
 
 private fun swipeAction(

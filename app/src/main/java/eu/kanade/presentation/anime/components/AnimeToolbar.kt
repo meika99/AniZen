@@ -139,7 +139,9 @@ fun AnimeToolbar(
                         )
                     }
 
-                    val filterTint = if (hasFilters) MaterialTheme.colorScheme.active else LocalContentColor.current
+                    // ANZ --> theme color instead of the yellow "active" tint
+                    val filterTint = if (hasFilters) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                    // ANZ <--
                     AppBarActions(
                         actions = persistentListOf<AppBar.AppBarAction>().builder()
                             .apply {
