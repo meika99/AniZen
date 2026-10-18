@@ -50,7 +50,7 @@ import tachiyomi.presentation.core.components.material.padding
  * Width of the video timer slots flanking the seekbar.
  * Reused by the player prompt so it can align with the duration timer's text.
  */
-internal val videoTimerWidth = 92.dp
+internal val videoTimerWidth = 64.dp
 
 @Immutable
 data class IndexedSegment(
@@ -118,8 +118,10 @@ fun SeekbarWithTimers(
             colors = SeekerDefaults.seekerColors(
                 progressColor = MaterialTheme.colorScheme.primary,
                 thumbColor = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.background,
-                readAheadColor = MaterialTheme.colorScheme.inversePrimary,
+                // ANZ --> visible on a black video: soft white track, subtle buffered part
+                trackColor = Color.White.copy(alpha = 0.22f),
+                readAheadColor = Color.White.copy(alpha = 0.40f),
+                // ANZ <--
             ),
         )
         VideoTimer(
@@ -154,13 +156,16 @@ fun VideoTimer(
             )
             .wrapContentHeight(Alignment.CenterVertically),
         text = Utils.prettyTime(value.toInt(), isInverted),
-        color = Color.White,
+        color = Color.White.copy(alpha = 0.92f),
         textAlign = TextAlign.Center,
         onTextLayout = onTextLayout,
-        style = MaterialTheme.typography.labelLarge.copy(
+        // ANZ --> smaller, medium weight timers
+        style = MaterialTheme.typography.labelMedium.copy(
             fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
-            fontFeatureSettings = "tnum"
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+            fontFeatureSettings = "tnum",
         )
+        // ANZ <--
     )
 }
 

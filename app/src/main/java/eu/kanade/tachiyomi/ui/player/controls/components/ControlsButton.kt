@@ -17,6 +17,7 @@
 
 package eu.kanade.tachiyomi.ui.player.controls.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -54,7 +56,7 @@ fun ControlsButton(
     title: String? = null,
     color: Color = Color.White,
     horizontalSpacing: Dp = MaterialTheme.padding.medium,
-    iconSize: Dp = 20.dp,
+    iconSize: Dp = 22.dp,
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
@@ -124,18 +126,24 @@ fun ControlsButton(
                 indication = null,
 
             )
+            // ANZ --> soft translucent pill instead of bare text
             .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.13f))
             .indication(
                 interactionSource,
                 ripple(),
             )
-            .padding(MaterialTheme.padding.medium),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
         Text(
             text,
             color = color,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontFeatureSettings = "tnum",
+            ),
         )
+        // ANZ <--
     }
 }
 
