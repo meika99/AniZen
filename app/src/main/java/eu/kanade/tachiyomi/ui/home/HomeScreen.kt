@@ -213,7 +213,9 @@ object HomeScreen : Screen() {
             CompositionLocalProvider(LocalNavigator provides navigator) {
                 Scaffold(
                     modifier = Modifier.nestedScroll(nestedScrollConnection),
-                    hazeEnabled = hazeEnabled,
+                    // ANZ --> the blur frosted the whole bottom slot as one grey rectangle: off here
+                    hazeEnabled = false,
+                    // ANZ <--
                     startBar = {
                         if (isTabletUi()) {
                             NavigationRail(
@@ -297,6 +299,24 @@ object HomeScreen : Screen() {
                                             LocalHomeBarInset provides (if (underBar) barHeight else 0.dp),
                                         ) {
                                             it.Content()
+                                        }
+                                        if (underBar) {
+                                            // Soft fade of the page colour behind the icons and the system buttons:
+                                            // no box, no blur, it just melts into the background.
+                                            val fadeColor = MaterialTheme.colorScheme.background
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomCenter)
+                                                    .fillMaxWidth()
+                                                    .height(barHeight + 44.dp)
+                                                    .background(
+                                                        Brush.verticalGradient(
+                                                            0f to Color.Transparent,
+                                                            0.5f to fadeColor.copy(alpha = 0.72f),
+                                                            1f to fadeColor.copy(alpha = 0.96f),
+                                                        ),
+                                                    ),
+                                            )
                                         }
                                     }
                                     // ANZ <--
@@ -703,8 +723,8 @@ val LocalHomeBarInset = compositionLocalOf { 0.dp }
 
 // ANZ -->
 /*
- * Floating "island" bottom bar: a rounded capsule with a hairline edge and soft shadow. Every tab is
- * just an icon; the selected one grows into a tinted pill that also shows its label.
+ * Floating bottom bar with no container at all: every tab is just an icon floating over the page, and
+ * only the selected one gets a soft tinted pill that also shows its label.
  */
 @Composable
 private fun FloatingNavBar(content: @Composable RowScope.() -> Unit) {
@@ -712,15 +732,6 @@ private fun FloatingNavBar(content: @Composable RowScope.() -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            // The page runs under the dock: a soft fade of the page colour keeps the dock and the system
-            // buttons readable and ends exactly on the background, so no block or seam shows.
-            .background(
-                Brush.verticalGradient(
-                    0f to Color.Transparent,
-                    0.4f to colors.background.copy(alpha = 0.55f),
-                    1f to colors.background.copy(alpha = 0.95f),
-                ),
-            )
             .windowInsetsPadding(NavigationBarDefaults.windowInsets)
             .padding(horizontal = 24.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
@@ -730,16 +741,6 @@ private fun FloatingNavBar(content: @Composable RowScope.() -> Unit) {
                 modifier = Modifier
                     .widthIn(max = 480.dp)
                     .fillMaxWidth()
-                    .shadow(
-                        elevation = 14.dp,
-                        shape = CircleShape,
-                        ambientColor = Color.Black,
-                        spotColor = Color.Black,
-                    )
-                    .clip(CircleShape)
-                    .background(colors.surfaceContainerHigh.copy(alpha = 0.94f))
-                    .border(1.dp, colors.onSurface.copy(alpha = 0.06f), CircleShape)
-                    .padding(5.dp)
                     .selectableGroup(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -773,7 +774,7 @@ private fun RowScope.FloatingNavItem(
         label = "navGrow",
     )
     val pill by animateColorAsState(
-        targetValue = colors.primary.copy(alpha = if (isSelected) 0.14f else 0f),
+        targetValue = colors.primary.copy(alpha = if (isSelected) 0.18f else 0f),
         label = "navPill",
     )
 
