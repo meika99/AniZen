@@ -1,5 +1,10 @@
 package eu.kanade.tachiyomi.ui.home
 
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandHorizontally
@@ -247,9 +252,22 @@ object HomeScreen : Screen() {
                     },
                     contentWindowInsets = WindowInsets(0),
                 ) { contentPadding ->
+                    // ANZ -->
+                    // The library runs under the floating bar down to the very bottom edge (so there is no
+                    // block behind the dock or the system buttons) and adds the bar height as its own bottom
+                    // space; the other tabs keep the classic bottom padding.
+                    val layoutDirection = LocalLayoutDirection.current
+                    val barHeight = contentPadding.calculateBottomPadding()
+                    // ANZ <--
                     Box(
                         modifier = Modifier
-                            .padding(contentPadding)
+                            // ANZ -->
+                            .padding(
+                                start = contentPadding.calculateStartPadding(layoutDirection),
+                                top = contentPadding.calculateTopPadding(),
+                                end = contentPadding.calculateEndPadding(layoutDirection),
+                            )
+                            // ANZ <--
                             .consumeWindowInsets(contentPadding)
                             .fillMaxSize(),
                     ) {
@@ -268,7 +286,20 @@ object HomeScreen : Screen() {
                         ) {
                             key(it.key) {
                                 tabNavigator.saveableState(key = "tab-${it.key}", it) {
-                                    it.Content()
+                                    // ANZ -->
+                                    val underBar = it is LibraryTab
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(bottom = if (underBar) 0.dp else barHeight),
+                                    ) {
+                                        CompositionLocalProvider(
+                                            LocalHomeBarInset provides (if (underBar) barHeight else 0.dp),
+                                        ) {
+                                            it.Content()
+                                        }
+                                    }
+                                    // ANZ <--
                                 }
                             }
                         }
@@ -278,6 +309,7 @@ object HomeScreen : Screen() {
                             Surface(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
+                                    .padding(bottom = barHeight)
                                     .padding(16.dp)
                                     .fillMaxWidth(),
                                 shape = MaterialTheme.shapes.medium,
@@ -665,6 +697,11 @@ object HomeScreen : Screen() {
 }
 
 // ANZ -->
+/** Height of the floating bottom bar for the tabs that run underneath it (the library); 0 for the rest. */
+val LocalHomeBarInset = compositionLocalOf { 0.dp }
+// ANZ <--
+
+// ANZ -->
 /*
  * Floating "island" bottom bar: a rounded capsule with a hairline edge and soft shadow. Every tab is
  * just an icon; the selected one grows into a tinted pill that also shows its label.
@@ -675,8 +712,17 @@ private fun FloatingNavBar(content: @Composable RowScope.() -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            // The page runs under the dock: a soft fade of the page colour keeps the dock and the system
+            // buttons readable and ends exactly on the background, so no block or seam shows.
+            .background(
+                Brush.verticalGradient(
+                    0f to Color.Transparent,
+                    0.4f to colors.background.copy(alpha = 0.55f),
+                    1f to colors.background.copy(alpha = 0.95f),
+                ),
+            )
             .windowInsetsPadding(NavigationBarDefaults.windowInsets)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(horizontal = 24.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         CompositionLocalProvider(LocalContentColor provides colors.onSurfaceVariant) {
@@ -691,9 +737,9 @@ private fun FloatingNavBar(content: @Composable RowScope.() -> Unit) {
                         spotColor = Color.Black,
                     )
                     .clip(CircleShape)
-                    .background(colors.surfaceContainerHigh)
-                    .border(1.dp, colors.onSurface.copy(alpha = 0.08f), CircleShape)
-                    .padding(6.dp)
+                    .background(colors.surfaceContainerHigh.copy(alpha = 0.94f))
+                    .border(1.dp, colors.onSurface.copy(alpha = 0.06f), CircleShape)
+                    .padding(5.dp)
                     .selectableGroup(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -727,14 +773,14 @@ private fun RowScope.FloatingNavItem(
         label = "navGrow",
     )
     val pill by animateColorAsState(
-        targetValue = colors.primary.copy(alpha = if (isSelected) 0.20f else 0f),
+        targetValue = colors.primary.copy(alpha = if (isSelected) 0.14f else 0f),
         label = "navPill",
     )
 
     Row(
         modifier = Modifier
             .weight(grow.coerceAtLeast(0.1f))
-            .height(52.dp)
+            .height(48.dp)
             .graphicsLayer {
                 scaleX = press
                 scaleY = press
@@ -764,7 +810,7 @@ private fun RowScope.FloatingNavItem(
             Text(
                 text = title,
                 modifier = Modifier.padding(start = 8.dp, end = 4.dp),
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                 color = colors.primary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
