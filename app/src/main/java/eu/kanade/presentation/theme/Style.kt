@@ -114,17 +114,18 @@ private val BaseTypography = Typography(
 
 // ANZ -->
 /**
- * Plus Jakarta Sans, bundled as a single variable font (res/font/plus_jakarta_sans.ttf): one file
- * gives every weight. Characters it does not cover (kanji, macrons...) fall back to the system font.
+ * Plus Jakarta Sans, bundled as one static file per weight (res/font/plus_jakarta_sans_*.ttf): static
+ * files make every weight render exactly, unlike a single variable font. Characters the font does not
+ * cover (kanji, macrons...) fall back to the system font.
  */
 val AppFontFamily = FontFamily(
-    Font(R.font.plus_jakarta_sans, weight = FontWeight.Light),
-    Font(R.font.plus_jakarta_sans, weight = FontWeight.Normal),
-    Font(R.font.plus_jakarta_sans, weight = FontWeight.Medium),
-    Font(R.font.plus_jakarta_sans, weight = FontWeight.SemiBold),
-    Font(R.font.plus_jakarta_sans, weight = FontWeight.Bold),
-    Font(R.font.plus_jakarta_sans, weight = FontWeight.ExtraBold),
-    Font(R.font.plus_jakarta_sans, weight = FontWeight.Black),
+    Font(R.font.plus_jakarta_sans_regular, FontWeight.Light),
+    Font(R.font.plus_jakarta_sans_regular, FontWeight.Normal),
+    Font(R.font.plus_jakarta_sans_medium, FontWeight.Medium),
+    Font(R.font.plus_jakarta_sans_semibold, FontWeight.SemiBold),
+    Font(R.font.plus_jakarta_sans_bold, FontWeight.Bold),
+    Font(R.font.plus_jakarta_sans_extrabold, FontWeight.ExtraBold),
+    Font(R.font.plus_jakarta_sans_extrabold, FontWeight.Black),
 )
 
 val TachiyomiTypography: Typography = BaseTypography.copy(
