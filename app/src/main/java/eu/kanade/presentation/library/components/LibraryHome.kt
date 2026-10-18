@@ -7,6 +7,9 @@ import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -191,7 +194,22 @@ private val GenreColors = listOf(
 internal object LibraryHomeAmbient {
     var color by mutableStateOf<Color?>(null)
     var fade by mutableFloatStateOf(0f)
+
+    /** Toolbar height in px, reported by the toolbar itself. */
+    var barHeight by mutableFloatStateOf(0f)
+
+    /** How far the transparent toolbar has slid up: 0 = fully shown, -barHeight = hidden. */
+    var barOffset by mutableFloatStateOf(0f)
     private var owner: Any? = null
+
+    /** Follows the finger: scrolling down hides the bar, scrolling up brings it straight back. */
+    fun slideBar(delta: Float) {
+        barOffset = (barOffset + delta).coerceIn(-barHeight, 0f)
+    }
+
+    fun showBar() {
+        barOffset = 0f
+    }
 
     fun publish(owner: Any, value: Color) {
         this.owner = owner
@@ -203,6 +221,7 @@ internal object LibraryHomeAmbient {
             this.owner = null
             color = null
             fade = 0f
+            barOffset = 0f
         }
     }
 }
@@ -498,6 +517,20 @@ internal fun LibraryHome(
             }
         }.collect { LibraryHomeAmbient.fade = it }
     }
+    // Back at the very top the toolbar is always fully shown again (tab changes jump to the top).
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0 }
+            .collect { atTop -> if (atTop) LibraryHomeAmbient.showBar() }
+    }
+    // Only listens: never consumes the scroll, it just tells the toolbar which way the page moves.
+    val barConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                LibraryHomeAmbient.slideBar(available.y)
+                return Offset.Zero
+            }
+        }
+    }
     LaunchedEffect(heroSeed) { heroPager.scrollToPage(0) }
     val gridRows = remember(tab, genre, items, flat, columns) { buildGridRows(tab, genre, items, flat, columns) }
     val gridCount = remember(gridRows) { gridRows.sumOf { (it as? GridRow.Cells)?.cells?.size ?: 0 } }
@@ -541,8 +574,14 @@ internal fun LibraryHome(
 
     LaunchedEffect(tab, genre, searchQuery) { listState.scrollToItem(0) }
 
+    // The page runs under the transparent toolbar: its tint starts at the very top of the screen and
+    // this inset keeps the first row clear of the icons.
+    val topInset = contentPadding.calculateTopPadding()
+
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(barConnection),
         state = listState,
         contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding() + BottomSpace),
     ) {
@@ -554,6 +593,7 @@ internal fun LibraryHome(
                 selectedIds = selectedIds,
                 actions = actions,
                 onGlobalSearch = onGlobalSearchClicked,
+                topInset = topInset,
             )
         } else {
             item(key = "top", contentType = "top") {
@@ -566,6 +606,7 @@ internal fun LibraryHome(
                     pagerState = heroPager,
                     selectedIds = selectedIds,
                     actions = actions,
+                    topInset = topInset,
                 )
             }
             if (tab == LibraryHomeTab.Home) {
@@ -761,10 +802,11 @@ private fun LazyListScope.searchSection(
     selectedIds: Set<Long>,
     actions: HomeActions,
     onGlobalSearch: (() -> Unit)?,
+    topInset: Dp,
 ) {
     val count = rows.sumOf { (it as? GridRow.Cells)?.cells?.size ?: 0 }
     item(key = "search-header", contentType = "search-header") {
-        SearchHeader(query = query, count = count, onGlobalSearch = onGlobalSearch)
+        SearchHeader(query = query, count = count, onGlobalSearch = onGlobalSearch, topInset = topInset)
     }
     itemsIndexed(
         items = rows,
@@ -785,13 +827,14 @@ private fun LazyListScope.searchSection(
 
 /** Result count + the "search everywhere" pill, over the same soft tint the toolbar uses. */
 @Composable
-private fun SearchHeader(query: String, count: Int, onGlobalSearch: (() -> Unit)?) {
+private fun SearchHeader(query: String, count: Int, onGlobalSearch: (() -> Unit)?, topInset: Dp) {
     val colors = MaterialTheme.colorScheme
     val ambient = LibraryHomeAmbient.color ?: colors.background
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(Brush.verticalGradient(listOf(ambient, colors.background)))
+            .padding(top = topInset)
             .padding(horizontal = EdgePadding)
             .padding(top = 18.dp, bottom = 16.dp),
     ) {
@@ -835,6 +878,7 @@ private fun HomeTop(
     pagerState: PagerState,
     selectedIds: Set<Long>,
     actions: HomeActions,
+    topInset: Dp,
     modifier: Modifier = Modifier,
 ) {
     val vibrant by CoverColorObserver.vibrantColors.collectAsState()
@@ -854,7 +898,8 @@ private fun HomeTop(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(ambient, background))),
+            .background(Brush.verticalGradient(listOf(ambient, background)))
+            .padding(top = topInset),
     ) {
         if (tab == LibraryHomeTab.Home) {
             HomeGreeting(onShuffle = actions.onShuffle)

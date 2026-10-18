@@ -45,7 +45,12 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -100,9 +105,11 @@ fun LibraryToolbar(
 
 // ANZ -->
 /*
- * Toolbar for the new library home: bold title with an accent counter, the actions grouped in one
- * soft glass capsule, and a background that takes the hero's ambient tint (see
- * [LibraryHomeAmbient]) so the bar and the screen under it look like a single surface.
+ * Toolbar for the new library home: no background at all. Only the counter and the three actions
+ * float, transparent, over the hero's tint (the page runs under the bar, see LibraryContent).
+ * The bar follows the scroll: it slides away when the page goes down and is back as soon as the
+ * page goes up. A soft fade of the page colour appears behind the icons only once content is
+ * actually moving under them, so they stay readable without ever drawing a box.
  */
 @Composable
 private fun LibraryRegularToolbar(
@@ -119,35 +126,32 @@ private fun LibraryRegularToolbar(
     navigateUp: (() -> Unit)?,
 ) {
     val colors = MaterialTheme.colorScheme
-    val capsuleAlpha = if (isSystemInDarkTheme()) 0.12f else 0.08f
+    val scrim = colors.background
 
-    val ambient = LibraryHomeAmbient.color
-    // Never fades all the way to plain surface: scrolling keeps a part of the tint so the bar does
-    // not jump to black, and a hairline at the bottom edge appears as the content slides under it.
-    val tinted = if (ambient != null) {
-        lerp(ambient, colors.surface, LibraryHomeAmbient.fade * ToolbarMaxFade)
-    } else {
-        null
-    }
-    val hairline = colors.onSurface
-
-    // The app bar paints `surface`, so overriding it here is enough to tint the bar.
-    MaterialTheme(colorScheme = if (tinted != null) colors.copy(surface = tinted) else colors) {
-        Box(
-            modifier = Modifier.drawWithContent {
-                drawContent()
-                val edge = LibraryHomeAmbient.fade
-                if (edge > 0f) {
-                    val y = size.height - 0.5.dp.toPx()
-                    drawLine(
-                        color = hairline.copy(alpha = 0.10f * edge),
-                        start = Offset(0f, y),
-                        end = Offset(size.width, y),
-                        strokeWidth = 1.dp.toPx(),
+    Box(
+        modifier = Modifier
+            .onSizeChanged { LibraryHomeAmbient.barHeight = it.height.toFloat() }
+            .graphicsLayer {
+                val height = LibraryHomeAmbient.barHeight
+                val offset = LibraryHomeAmbient.barOffset.coerceIn(-height, 0f)
+                translationY = offset
+                alpha = if (height > 0f) (1f + offset / height).coerceIn(0f, 1f) else 1f
+            }
+            .drawBehind {
+                val strength = (LibraryHomeAmbient.fade * 2f).coerceIn(0f, 1f) * 0.85f
+                if (strength > 0.01f) {
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                scrim.copy(alpha = strength),
+                                scrim.copy(alpha = strength * 0.55f),
+                                Color.Transparent,
+                            ),
+                        ),
                     )
                 }
             },
-        ) {
+    ) {
         if (searchQuery != null) {
             LibrarySearchBar(
                 query = searchQuery,
@@ -161,69 +165,49 @@ private fun LibraryRegularToolbar(
                 scrollBehavior = scrollBehavior,
             )
         } else {
-        SearchToolbar(
-            titleContent = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = title.text,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f, false),
-                        overflow = TextOverflow.Ellipsis,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = (-0.5).sp,
-                    )
-                    if (title.numberOfEntries != null) {
+            AppBar(
+                titleContent = {
+                    // Just the number: no library or category name.
+                    val count = title.numberOfEntries
+                    if (count != null) {
                         Text(
-                            text = "${title.numberOfEntries}",
-                            modifier = Modifier
-                                .padding(start = 8.dp)
-                                .background(colors.primary.copy(alpha = 0.18f), CircleShape)
-                                .padding(horizontal = 10.dp, vertical = 2.dp),
-                            color = colors.primary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = "$count",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = (-0.5).sp,
                             maxLines = 1,
                         )
                     }
-                }
-            },
-            searchQuery = searchQuery,
-            onChangeSearchQuery = onSearchQueryChange,
-            searchEnabled = false,
-            actions = {
-                val filterTint = if (hasFilters) colors.active else LocalContentColor.current
-                val actionList = persistentListOf<AppBar.AppBarAction>(
-                    AppBar.Action(
-                        title = stringResource(MR.strings.action_filter),
-                        icon = Icons.Outlined.FilterList,
-                        iconTint = filterTint,
-                        onClick = onClickFilter,
-                    ),
-                    AppBar.OverflowAction(
-                        title = stringResource(MR.strings.action_update_library),
-                        onClick = onClickGlobalUpdate,
-                    ),
-                    AppBar.OverflowAction(
-                        title = stringResource(MR.strings.action_update_category),
-                        onClick = onClickRefresh,
-                    ),
-                    AppBar.OverflowAction(
-                        title = stringResource(MR.strings.action_open_random_manga),
-                        onClick = onClickOpenRandomEntry,
-                    ),
-                    AppBar.OverflowAction(
-                        title = stringResource(SYMR.strings.sync_library),
-                        onClick = onClickSyncNow,
-                    ),
-                )
-                if (searchQuery == null) {
-                    Row(
-                        modifier = Modifier
-                            .padding(end = 6.dp)
-                            .clip(CircleShape)
-                            .background(colors.onBackground.copy(alpha = capsuleAlpha)),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                },
+                backgroundColor = Color.Transparent,
+                navigateUp = navigateUp,
+                actions = {
+                    val filterTint = if (hasFilters) colors.active else colors.onSurface
+                    val actionList = persistentListOf<AppBar.AppBarAction>(
+                        AppBar.Action(
+                            title = stringResource(MR.strings.action_filter),
+                            icon = Icons.Outlined.FilterList,
+                            iconTint = filterTint,
+                            onClick = onClickFilter,
+                        ),
+                        AppBar.OverflowAction(
+                            title = stringResource(MR.strings.action_update_library),
+                            onClick = onClickGlobalUpdate,
+                        ),
+                        AppBar.OverflowAction(
+                            title = stringResource(MR.strings.action_update_category),
+                            onClick = onClickRefresh,
+                        ),
+                        AppBar.OverflowAction(
+                            title = stringResource(MR.strings.action_open_random_manga),
+                            onClick = onClickOpenRandomEntry,
+                        ),
+                        AppBar.OverflowAction(
+                            title = stringResource(SYMR.strings.sync_library),
+                            onClick = onClickSyncNow,
+                        ),
+                    )
+                    CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
                         IconButton(onClick = { onSearchQueryChange("") }) {
                             Icon(
                                 imageVector = Icons.Outlined.Search,
@@ -232,19 +216,16 @@ private fun LibraryRegularToolbar(
                         }
                         AppBarActions(actionList)
                     }
-                } else {
-                    AppBarActions(actionList)
-                }
-            },
-            scrollBehavior = scrollBehavior,
-            navigateUp = navigateUp,
-        )
-        }
+                },
+                isActionMode = false,
+                // No scroll behaviour on purpose: it would repaint the bar with a solid container
+                // colour as soon as content slides under it.
+                scrollBehavior = null,
+            )
         }
     }
 }
 
-private const val ToolbarMaxFade = 0.55f
 
 /** Search mode: the query lives in a rounded pill with the search glyph and a clear button. */
 @Composable
@@ -372,8 +353,9 @@ private fun LibrarySearchBar(
                 ),
             )
         },
+        backgroundColor = Color.Transparent,
         isActionMode = false,
-        scrollBehavior = scrollBehavior,
+        scrollBehavior = null,
     )
 }
 // ANZ <--
