@@ -94,6 +94,8 @@ import eu.kanade.presentation.anime.components.AnimeEpisodeListItem
 import eu.kanade.presentation.anime.components.AnimeInfoBox
 import eu.kanade.presentation.anime.components.AnimeSeasonListItem
 import eu.kanade.presentation.anime.components.AnimeToolbar
+import eu.kanade.presentation.anime.components.rememberToolbarSlide
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import eu.kanade.presentation.anime.components.EpisodeDownloadAction
 import eu.kanade.presentation.anime.components.EpisodeHeader
 import eu.kanade.presentation.anime.components.CreditDetailsDialog
@@ -408,6 +410,9 @@ private fun AnimeScreenSmallImpl(
 ) {
     val navigator = LocalNavigator.currentOrThrow
     val episodeListState = rememberLazyListState()
+    // ANZ --> the transparent toolbar follows the scroll (hides going down, returns going up)
+    val barSlide = rememberToolbarSlide(episodeListState)
+    // ANZ <--
     val episodes = state.processedEpisodes
     val listItem = remember(state.episodeListItems, state.selectedSeason, state.anime.seasonGroupingMode, state.availableSeasons) {
         if (state.anime.seasonGroupingMode != LibraryPreferences.SeasonGrouping.Tabs || state.selectedSeason == null || state.availableSeasons.size <= 1) {
@@ -531,6 +536,7 @@ private fun AnimeScreenSmallImpl(
                     AnimeToolbar(
                         title = state.anime.title,
                         titleAlphaProvider = { animatedTitleAlphaState.value },
+                        slide = barSlide,
                         backgroundAlphaProvider = { animatedBgAlphaState.value },
                         hasFilters = state.filterActive,
                         onBackClicked = internalOnBackPressed,
@@ -592,7 +598,9 @@ private fun AnimeScreenSmallImpl(
                             endContentPadding = contentPadding.calculateEndPadding(layoutDirection),
                         ) {
                             LazyColumn(
-                                modifier = Modifier.fillMaxHeight(),
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .nestedScroll(barSlide.connection),
                                 state = episodeListState,
                                 contentPadding = PaddingValues(
                                     start = contentPadding.calculateStartPadding(layoutDirection),
