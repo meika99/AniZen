@@ -17,6 +17,11 @@
 
 package eu.kanade.tachiyomi.ui.player.controls.components
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.indication
@@ -154,33 +159,49 @@ fun FilledControlsButton(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // ANZ --> same size as before, new look: tinted glass pill with an accent border and icon
     val interactionSource = remember { MutableInteractionSource() }
     val clickEvent = LocalPlayerButtonsClickEvent.current
+    val accent = MaterialTheme.colorScheme.primary
 
-    Box(
+    Row(
         modifier = modifier
             .tvFocusHighlight(
-                shape = MaterialTheme.shapes.small,
+                shape = CircleShape,
                 focusedScale = 1.06f,
-            ),
+            )
+            .clip(CircleShape)
+            .background(accent.copy(alpha = 0.22f))
+            .border(1.dp, accent.copy(alpha = 0.75f), CircleShape)
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
+                onClick = {
+                    clickEvent()
+                    onClick()
+                },
+                onLongClick = onLongClick,
+            )
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Button(onClick = {}) {
-            Text(text = text)
-        }
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .combinedClickable(
-                    onClick = {
-                        clickEvent()
-                        onClick()
-                    },
-                    onLongClick = onLongClick,
-                    interactionSource = interactionSource,
-                    indication = null,
-                ),
+        Icon(
+            imageVector = Icons.Filled.FastForward,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = text,
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontFeatureSettings = "tnum",
+            ),
         )
     }
+    // ANZ <--
 }
 
 @Preview

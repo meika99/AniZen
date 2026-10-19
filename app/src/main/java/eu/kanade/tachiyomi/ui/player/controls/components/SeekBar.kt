@@ -52,6 +52,11 @@ import tachiyomi.presentation.core.components.material.padding
  */
 internal val videoTimerWidth = 64.dp
 
+// ANZ -->
+/** Radius of the seekbar thumb; the thumbnail preview uses it to sit exactly over the thumb. */
+internal val seekerThumbRadius = 7.dp
+// ANZ <--
+
 @Immutable
 data class IndexedSegment(
     val name: String,
@@ -123,6 +128,14 @@ fun SeekbarWithTimers(
                 readAheadColor = Color.White.copy(alpha = 0.40f),
                 // ANZ <--
             ),
+            // ANZ --> slim track, small thumb, wider chapter gaps
+            dimensions = SeekerDefaults.seekerDimensions(
+                trackHeight = 4.dp,
+                progressHeight = 4.dp,
+                thumbRadius = seekerThumbRadius,
+                gap = 3.dp,
+            ),
+            // ANZ <--
         )
         VideoTimer(
             value = if (timersInverted.second) position - duration else duration,

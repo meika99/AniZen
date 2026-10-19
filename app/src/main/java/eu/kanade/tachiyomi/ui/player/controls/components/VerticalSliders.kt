@@ -102,15 +102,17 @@ private fun VerticalSliderInternal(
     overflowPercentage: Float? = null,
 ) {
     Box(
-        modifier = modifier.height(120.dp).aspectRatio(0.45f),
+        modifier = modifier.height(132.dp).aspectRatio(0.42f),
         contentAlignment = Alignment.BottomCenter,
     ) {
         Box(
             modifier = modifier
-                .fillMaxWidth(fraction = 0.5f)
+                .fillMaxWidth(fraction = 0.62f)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(16.dp))
-                .background(MaterialTheme.colorScheme.background),
+                .clip(RoundedCornerShape(18.dp))
+                // ANZ --> light glass track with a white fill
+                .background(Color.White.copy(alpha = 0.2f)),
+                // ANZ <--
             contentAlignment = Alignment.BottomCenter,
         ) {
             val targetHeight by animateFloatAsState(percentage, label = "vsliderheight")
@@ -118,7 +120,7 @@ private fun VerticalSliderInternal(
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(targetHeight)
-                    .background(MaterialTheme.colorScheme.tertiary),
+                    .background(Color.White.copy(alpha = 0.95f)),
             )
             if (overflowPercentage != null) {
                 val overflowHeight by animateFloatAsState(
