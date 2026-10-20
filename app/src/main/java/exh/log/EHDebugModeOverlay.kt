@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import eu.kanade.tachiyomi.ui.player.PlayerActivity
 import eu.kanade.tachiyomi.ui.player.PlayerStats
+import eu.kanade.tachiyomi.util.system.getDisplayRefreshRate
 import `is`.xyz.mpv.MPV
 import kotlinx.coroutines.delay
 import java.text.DecimalFormat
@@ -32,14 +33,16 @@ fun InterpolationStatsOverlay() {
     // ANZ -->
     val activity = LocalContext.current as? PlayerActivity
     val mpv = activity?.viewModel?.mpv
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
         while (true) {
             PlayerStats.estimatedVfFps.value = mpv?.getPropertyDouble("estimated-vf-fps") ?: 0.0
             PlayerStats.videoParamsFps.value = mpv?.getPropertyDouble("video-params/fps") ?: 0.0
             PlayerStats.containerFps.value = mpv?.getPropertyDouble("container-fps") ?: 0.0
-            PlayerStats.displayFps.value = mpv?.getPropertyDouble("override-display-fps")
-                ?: mpv?.getPropertyDouble("display-fps")
-                ?: 0.0
+            val detectedRefreshRate = context.getDisplayRefreshRate().toDouble()
+            PlayerStats.displayFps.value = (mpv?.getPropertyDouble("override-display-fps")?.takeIf { it > 0.0 }
+                ?: mpv?.getPropertyDouble("display-fps")?.takeIf { it > 0.0 }
+                ?: detectedRefreshRate)
             PlayerStats.estimatedDisplayFps.value = mpv?.getPropertyDouble("estimated-display-fps") ?: 0.0
 
             PlayerStats.isInterpolating.value = mpv?.getPropertyBoolean("interpolation") ?: false
@@ -56,6 +59,8 @@ fun InterpolationStatsOverlay() {
             PlayerStats.videoOutH.value = mpv?.getPropertyInt("video-out-params/h")?.toLong() ?: 0L
             PlayerStats.dwidth.value = mpv?.getPropertyInt("dwidth")?.toLong() ?: 0L
             PlayerStats.dheight.value = mpv?.getPropertyInt("dheight")?.toLong() ?: 0L
+            PlayerStats.currentVo.value = mpv?.getPropertyString("current-vo") ?: mpv?.getPropertyString("vo") ?: ""
+            PlayerStats.gpuDumbMode.value = mpv?.getPropertyBoolean("gpu-dumb-mode") ?: false
 
             delay(1000)
         }
@@ -75,6 +80,10 @@ fun InterpolationStatsOverlay() {
     val voPasses by PlayerStats.voPasses.collectAsState(0L)
     
     val hwdec by PlayerStats.hwdec.collectAsState("")
+    // ANZ -->
+    val currentVo by PlayerStats.currentVo.collectAsState("")
+    val gpuDumbMode by PlayerStats.gpuDumbMode.collectAsState(false)
+    // ANZ <--
     val videoW by PlayerStats.videoW.collectAsState(0L)
     val videoH by PlayerStats.videoH.collectAsState(0L)
     val videoOutW by PlayerStats.videoOutW.collectAsState(0L)
@@ -104,20 +113,40 @@ fun InterpolationStatsOverlay() {
         Text(text = "SMOOTH MOTION DEBUG (PAGE 6)", style = baseStyle.copy(color = Color(0xFF33BBFF)))
         Spacer(Modifier.height(8.dp))
 
-        // Pipeline Logic
-        val isDirect = hwdec == "mediacodec"
-        // Improved detection: Check if output frames > 1 OR display FPS is high OR algorithm is active
-        val isWorking = isInterpolating && !isDirect && (voPasses > 1 || actualFps > (vfFps + 5) || (tscale.isNotEmpty() && tscale != "none"))
-        
+        // ANZ -->
+        // Pipeline Logic: Frame interpolation works with MediaCodec on vo=gpu/gpu-next.
+        // Only direct surface rendering (vo=mediacodec_embed) bypasses mpv's GPU renderer.
+        val isDirectSurface = currentVo == "mediacodec_embed"
+        val isDumbMode = gpuDumbMode
+        val isWorking = isInterpolating && !isDirectSurface && !isDumbMode &&
+            (voPasses > 1 || actualFps > (vfFps + 5) || (tscale.isNotEmpty() && tscale != "none"))
+
         val statusText = when {
+            isDirectSurface -> "BYPASSED (Direct Surface)"
+            isDumbMode -> "DISABLED (gpu-dumb-mode=yes)"
             isWorking -> "ACTIVE"
-            isDirect -> "BYPASSED (Direct HWDEC)"
             isInterpolating && !isWorking -> "WAITING (Preparing frames)"
             else -> "OFF"
         }
-        StatLine("Status", statusText, baseStyle.copy(color = if (isDirect) Color.Red else if (statusText == "ACTIVE") Color.Green else Color.Unspecified))
+        val statusColor = when {
+            isDirectSurface || isDumbMode -> Color.Red
+            isWorking -> Color.Green
+            isInterpolating -> Color(0xFFFFAA00)
+            else -> Color.Unspecified
+        }
+        StatLine("Status", statusText, baseStyle.copy(color = statusColor))
         StatLine("Sync Mode", videoSync, baseStyle)
         StatLine("Scaler", tscale.ifEmpty { "none" }, baseStyle)
+
+        val pipelineMode = when {
+            isDirectSurface -> "Direct Surface (Bypass)"
+            hwdec == "mediacodec" -> "GPU Zero-Copy (HW+)"
+            hwdec == "mediacodec-copy" -> "GPU Copy-Back (HW)"
+            hwdec.isNotEmpty() && hwdec != "no" -> "GPU HW ($hwdec)"
+            else -> "GPU Software (SW)"
+        }
+        StatLine("Pipeline", pipelineMode, baseStyle)
+        // ANZ <--
         
         Spacer(Modifier.height(12.dp))
 

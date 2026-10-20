@@ -38,6 +38,10 @@ This mod unlocks the full potential of `mpv-android`. While the official version
     1.  **Input Lag:** Adds delay due to frame calculation.
     2.  **Battery:** Significant GPU/CPU impact.
     3.  **Sync:** Forces `display-resample` mode.
+*   **MediaCodec Hardware Decoding Support:**
+    *   Works with **HW+** (`hwdec=mediacodec` zero-copy directly into GPU hardware buffers) and **HW** (`hwdec=mediacodec-copy`).
+    *   Because AniZen uses `vo=gpu` / `vo=gpu-next`, mpv's GPU renderer retains control of the frame presentation queue and runs temporal scaler interpolation passes normally. Only direct surface mode (`vo=mediacodec_embed`) would bypass mpv's GPU renderer.
+    *   `gpu-dumb-mode=no` is enforced to prevent mpv from disabling framebuffer objects (FBOs) needed for interpolation blending.
 
 ---
 

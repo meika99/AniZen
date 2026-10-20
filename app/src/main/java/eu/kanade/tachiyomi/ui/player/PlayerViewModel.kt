@@ -210,6 +210,7 @@ class PlayerViewModel @JvmOverloads constructor(
         it.setOptionString("icc-cache-dir", cachePath)
         it.setOptionString("keep-open", "yes")
         // ANZ -->
+        it.setOptionString("volume-max", (audioPreferences.volumeBoostCap().get() + 100).toString())
         // Start the engine at the remembered speed. This must happen here, as a pre-init option,
         // rather than as a property write after initialization: `playbackSpeed` snapshots the
         // "speed" property once when the flow is created, and the library's backing SharedFlow has
@@ -394,8 +395,11 @@ class PlayerViewModel @JvmOverloads constructor(
     private var fillerEpisodes: Set<Float> = emptySet()
     val relativeTime: Boolean = uiPreferences.relativeTime().get()
     val dateFormat: java.time.format.DateTimeFormatter = UiPreferences.dateFormat(uiPreferences.dateFormat().get())
+    // ANZ: normalize mpv volume-max (100 + cap) to boost cap amount
+    private val volumeBoostCap by mpv.propFlow<Int>("volume-max")
+        .map { (it?.minus(100))?.coerceAtLeast(0) }
+        .collectAsState(viewModelScope, initialValue = audioPreferences.volumeBoostCap().get()) // ANZ
     // ANZ <--
-    private val volumeBoostCap by mpv.propFlow<Int>("volume-max").collectAsState(viewModelScope)
 
     val subtitleTracks = mpv.propFlow<MPVNode>("track-list")
         .map { node ->
@@ -484,6 +488,12 @@ class PlayerViewModel @JvmOverloads constructor(
         mpv.propFlow<String>("secondary-sid")
             .onEach { onSubtitleTrackSelectChange() }
             .launchIn(viewModelScope)
+
+        // ANZ -->
+        mpv.propFlow<String>("aid")
+            .onEach { onAudioTrackSelectChange() }
+            .launchIn(viewModelScope)
+        // ANZ <--
 
         mpv.propFlow<Long>("user-data/current-anime/intro-length")
             .filterNotNull()
@@ -904,6 +914,20 @@ class PlayerViewModel @JvmOverloads constructor(
             }
         }
     }
+
+    // ANZ -->
+    fun onAudioTrackSelectChange() {
+        val id = mpv.getPropertyInt("aid")
+
+        _externalAudioTracks.update { audioTracks ->
+            audioTracks.map {
+                it.copy(
+                    mainSelection = if (it.id != null && it.id == id) 0 else -1,
+                )
+            }
+        }
+    }
+    // ANZ <--
 
     private fun selectSubById(id: Int) {
         val selectedSubs = Pair(mpv.getPropertyInt("sid"), mpv.getPropertyInt("secondary-sid"))

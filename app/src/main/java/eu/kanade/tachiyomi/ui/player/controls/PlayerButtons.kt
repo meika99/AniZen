@@ -178,6 +178,7 @@ fun RenderPlayerButton(
             )
             // ANZ <--
         }
+        // ANZ -->
         PlayerButton.CurrentChapter -> {
             AnimatedVisibility(
                 currentChapter != null && viewModel.playerPreferences.showCurrentChapter().get(),
@@ -185,11 +186,12 @@ fun RenderPlayerButton(
                 exit = fadeOut(),
             ) {
                 CurrentChapter(
-                    chapter = currentChapter!!,
+                    chapter = currentChapter ?: return@AnimatedVisibility,
                     onClick = { viewModel.showSheet(Sheets.Chapters) },
                 )
             }
         }
+        // ANZ <--
         PlayerButton.LockControls -> {
             ControlsButton(
                 icon = button.getIcon(),

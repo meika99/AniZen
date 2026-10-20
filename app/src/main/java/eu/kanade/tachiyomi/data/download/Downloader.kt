@@ -171,19 +171,30 @@ class Downloader(
         downloaderJob = scope.launch {
             // Dynamic Queue Processing
             while (isRunning) {
-                val maxConcurrency = preferences.concurrentDownloads().get().coerceAtLeast(1)
+                // ANZ -->
+                val maxConcurrencyPerSource = preferences.concurrentDownloads().get().coerceAtLeast(1) // ANZ
+                val maxGlobalConcurrency = (maxConcurrencyPerSource * 4).coerceIn(4, 16)
                 
                 // Clean up completed jobs
                 activeDownloads.entries.removeIf { !it.value.isActive }
 
-                if (activeDownloads.size >= maxConcurrency) {
+                if (activeDownloads.size >= maxGlobalConcurrency) {
                     delay(500)
                     continue
                 }
 
-                val download = queueState.value.firstOrNull { 
-                    it.status == Download.State.QUEUE && !activeDownloads.containsKey(it.episode.id)
-                } 
+                // Per-Source Concurrency: Different extensions download concurrently without waiting for each other
+                val download = queueState.value.firstOrNull { candidate ->
+                    if (candidate.status != Download.State.QUEUE || activeDownloads.containsKey(candidate.episode.id)) {
+                        false
+                    } else {
+                        val activeForSource = queueState.value.count {
+                            activeDownloads.containsKey(it.episode.id) && it.source.id == candidate.source.id
+                        }
+                        activeForSource < maxConcurrencyPerSource
+                    }
+                }
+                // ANZ <-- 
                 
                 if (download == null) {
                     if (activeDownloads.isEmpty()) break
@@ -480,14 +491,17 @@ class Downloader(
     private fun detectEngineType(video: Video): String {
         return when {
             video.videoUrl.startsWith("magnet") || video.videoUrl.endsWith(".torrent") -> "Torrent"
+            // ANZ -->
+            // Multi-track streams (separate video and audio tracks) must use DASH/FFmpeg muxing
+            video.audioTracks.isNotEmpty() -> "DASH"
+            // ANZ <--
             video.videoUrl.contains(".m3u8", ignoreCase = true) ||
             // Hanime's signed HLS endpoint is extensionless: /hls/{id}/{token}
             video.videoUrl.contains("/hls/", ignoreCase = true) ||
             video.videoUrl.contains("/oppai/") ||
             video.videoUrl.contains("/proxy/oppai/") -> "HLS"
             video.videoUrl.contains(".mpd") || 
-            (video.videoUrl.contains("/playback/") && !video.videoUrl.contains(".mp4")) || 
-            video.audioTracks.isNotEmpty() -> "DASH"
+            (video.videoUrl.contains("/playback/") && !video.videoUrl.contains(".mp4")) -> "DASH"
             else -> "Normal"
         }
     }
@@ -517,7 +531,9 @@ class Downloader(
         try {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             
-            val finalExt = if (download.video?.videoUrl?.contains(".mp4") == true) "mp4" else "mkv"
+            // ANZ -->
+            val finalExt = if (download.video?.videoUrl?.contains(".mp4") == true && download.engineType != "DASH") "mp4" else "mkv"
+            // ANZ <--
             val mergedFile = File(sandboxDir, "$videoFilename.tmp")
 
             // RECOVERY: Handle interrupted FINALIZING state
@@ -690,7 +706,9 @@ class Downloader(
         notifyProgress(download)
 
         val videoFilename = DiskUtil.buildValidFilename(download.episode.name)
-        val finalExt = if (download.video?.videoUrl?.contains(".mp4") == true) "mp4" else "mkv"
+        // ANZ -->
+        val finalExt = if (download.video?.videoUrl?.contains(".mp4") == true && download.engineType != "DASH") "mp4" else "mkv"
+        // ANZ <--
         val finalName = "$videoFilename.$finalExt"
 
         // Create temporary episode directory
@@ -1083,7 +1101,9 @@ class Downloader(
 
         val downloadedCount = java.util.concurrent.atomic.LongAdder()
         val downloadedBytes = java.util.concurrent.atomic.LongAdder()
-        val segmentQueue = segments.mapIndexed { index, url -> index to url }.toMutableList()
+        // ANZ -->
+        val segmentIndex = java.util.concurrent.atomic.AtomicInteger(0) // ANZ: lock-free O(1) segment dispatch
+        // ANZ <--
         var lastUpdate = System.currentTimeMillis()
         
         val host = Uri.parse(video.videoUrl).host ?: ""
@@ -1093,33 +1113,47 @@ class Downloader(
         coroutineScope {
             repeat(threadCount) {
                 launch {
+                    // ANZ -->
+                    // Reuse Cipher instance per worker thread to avoid 1500x Cipher.getInstance reflection
+                    val workerCipher = if (secretKey != null) javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding") else null
+                    // ANZ <--
                     while (isActive) {
                         if (download.status == Download.State.PAUSED) break
-                        val seg = synchronized(segmentQueue) { if (segmentQueue.isNotEmpty()) segmentQueue.removeAt(0) else null } ?: break
-                        val segmentFile = File(sandboxDir, "seg_${seg.first}.part")
+                        // ANZ -->
+                        val segIdx = segmentIndex.getAndIncrement()
+                        if (segIdx >= segments.size) break
+                        val segUrl = segments[segIdx]
+                        val segmentFile = File(sandboxDir, "seg_$segIdx.part")
+                        // ANZ <--
 
                         if (segmentFile.exists() && segmentFile.length() > 0) {
                             downloadedCount.increment()
                             downloadedBytes.add(segmentFile.length())
-                            download.segmentProgress[seg.first] = true
+                            // ANZ -->
+                            download.segmentProgress[segIdx] = true
+                            // ANZ <--
                             continue
                         }
 
                         retry(times = 5) {
-                            client.newCall(Request.Builder().url(seg.second).headers(headers).build()).execute().use { res ->
+                            // ANZ -->
+                            client.newCall(Request.Builder().url(segUrl).headers(headers).build()).execute().use { res ->
+                                if (res.code == 429) {
+                                    kotlinx.coroutines.delay(500L)
+                                }
                                 if (!res.isSuccessful) throw IOException("Segment failed: ${res.code}")
                                 var data = res.body?.bytes() ?: throw IOException("Empty segment")
 
                                 coroutineContext.ensureActive()
 
-                                // THREAD-SAFE AES DECRYPTION WITH CORRECT SEQUENCE IV
-                                if (secretKey != null) {
-                                    val seqNum = mediaSequence + seg.first
+                                // THREAD-SAFE AES DECRYPTION WITH REUSED WORKER CIPHER
+                                workerCipher?.let { cipher ->
+                                    val seqNum = mediaSequence + segIdx
                                     val ivBytes = java.nio.ByteBuffer.allocate(16).putLong(8, seqNum.toLong()).array()
-                                    val cipher = javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding")
                                     cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey, javax.crypto.spec.IvParameterSpec(ivBytes))
                                     data = cipher.doFinal(data)
                                 }
+                                // ANZ <--
 
                                 java.io.FileOutputStream(segmentFile).use { it.write(data) }
                                 downloadedCount.increment()
@@ -1129,11 +1163,13 @@ class Downloader(
                                 download.downloadedSegments = currentCount
 
                                 // NEW: Mark this exact segment as complete for the UI's secondary progress bar
-                                download.segmentProgress[seg.first] = true
+                                // ANZ -->
+                                download.segmentProgress[segIdx] = true
+                                // ANZ <--
 
                                 val now = System.currentTimeMillis()
                                 if (now - lastUpdate > 1000 || currentCount == segments.size) {
-                                    download.update(downloadedBytes.sum(), -1, false)
+                                    download.update(downloadedBytes.sum(), -1L, false)
                                     store.update(download)
                                     notifier.onProgressChange(download)
                                     lastUpdate = now
@@ -1308,6 +1344,9 @@ class Downloader(
         val totalMergeSize = if (totalSizeOverride > 0) totalSizeOverride else partFiles.sumOf { it.length() }
         var mergedBytes = 0L
         var lastUpdate = System.currentTimeMillis()
+        // ANZ -->
+        var fallbackBuffer: java.nio.ByteBuffer? = null
+        // ANZ <--
 
         partFiles.forEach { partFile ->
             if (partFile.exists()) {
@@ -1327,7 +1366,10 @@ class Downloader(
                             val transferred = inChannel.transferTo(position, toTransfer, outChannel)
                             if (transferred <= 0) {
                                 // Fallback: Manual Buffered Copy
-                                val buffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
+                                // ANZ -->
+                                val buffer = fallbackBuffer ?: java.nio.ByteBuffer.allocateDirect(1024 * 1024).also { fallbackBuffer = it }
+                                buffer.clear()
+                                // ANZ <--
                                 inChannel.position(position)
                                 while (inChannel.read(buffer) > 0) {
                                     buffer.flip()
@@ -1341,7 +1383,10 @@ class Downloader(
                             mergedBytes += transferred
                         } catch (e: Exception) {
                             // Fallback on any Channel exception (e.g. UnsupportedOperation)
-                            val buffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
+                            // ANZ -->
+                            val buffer = fallbackBuffer ?: java.nio.ByteBuffer.allocateDirect(1024 * 1024).also { fallbackBuffer = it }
+                            buffer.clear()
+                            // ANZ <--
                             inChannel.position(position)
                             while (inChannel.read(buffer) > 0) {
                                 buffer.flip()
@@ -1383,21 +1428,57 @@ class Downloader(
         }
 
         val headers = video.headers ?: download.source.headers
-        val headerOptions = headers.joinToString("", "-headers '", "'") {
+        // ANZ -->
+        val headerString = if (headers.size == 0) "" else headers.joinToString("") {
             "${it.first}: ${it.second}\r\n"
         }
 
-        val ffmpegOptions = getFFmpegOptions(video, headerOptions, ffmpegFilename)
+        if (download.totalDuration <= 0L) { // ANZ
+            if (download.episode.totalSeconds > 0) {
+                download.totalDuration = download.episode.totalSeconds
+            } else if (video.timestamps.isNotEmpty()) {
+                val maxTimestamp = video.timestamps.maxOfOrNull { it.end }?.toLong() ?: 0L
+                if (maxTimestamp > 0) {
+                    download.totalDuration = maxTimestamp
+                }
+            } else if (video.videoUrl.contains(".mpd")) {
+                download.totalDuration = extractMpdDuration(video.videoUrl, headers)
+            }
+        }
+
+        val host = Uri.parse(video.videoUrl).host ?: ""
+        val dashThreads = calculateDynamicConcurrency(host).coerceIn(3, 16)
+        val ffmpegOptions = getFFmpegOptions(video, headerString, ffmpegFilename, dashThreads)
 
         // Initial UI State
         download.status = Download.State.DOWNLOADING
-        download.activeThreads = 0
+        download.activeThreads = dashThreads
+        // ANZ <--
         notifier.onProgressChange(download)
         store.update(download)
 
+        // ANZ -->
+        val logBuffer = StringBuilder()
         val logCallback = LogCallback { log ->
+            val msg = log.message ?: ""
+            if (download.totalDuration <= 0L) {
+                synchronized(logBuffer) {
+                    logBuffer.append(msg)
+                    if (logBuffer.length > 2000) {
+                        logBuffer.delete(0, 1000)
+                    }
+                    val match = Regex("""Duration:\s*(\d+):(\d+):(\d+\.?\d*)""").find(logBuffer.toString())
+                    if (match != null) {
+                        val (h, m, s) = match.destructured
+                        val totalSec = h.toLong() * 3600 + m.toLong() * 60 + s.toDouble().toLong()
+                        if (totalSec > 0) {
+                            download.totalDuration = totalSec
+                        }
+                    }
+                }
+            }
             if (log.level <= Level.AV_LOG_WARNING) {
-                logcat(LogPriority.ERROR) { "FFmpeg: ${log.message}" }
+                logcat(LogPriority.ERROR) { "FFmpeg: $msg" }
             }
         }
 
@@ -1406,17 +1487,23 @@ class Downloader(
             val now = System.currentTimeMillis()
             val outTime = (s.time / 1000.0).toLong()
             
-            // Estimation: If we have duration and bitrate, estimate final size
-            if (download.totalSize <= 0 && download.totalDuration > 0 && s.bitrate > 0) {
-                download.totalSize = (download.totalDuration * s.bitrate / 8).toLong()
+            if (download.totalDuration <= 0L) {
+                if (download.episode.totalSeconds > 0) {
+                    download.totalDuration = download.episode.totalSeconds
+                } else {
+                    download.totalDuration = 1440L // Standard anime ~24 min fallback
+                }
             }
 
-            // Sync with Normal design: report current bytes read
-            download.update(s.size, download.totalSize, false)
+            download.update(s.size, -1L, false)
             
-            if (download.totalDuration > 0) {
-                download.progress = (100 * outTime / download.totalDuration).toInt().coerceIn(0, 100)
+            if (download.totalDuration > 0 && outTime > 0) {
+                val timeProgress = (100 * outTime / download.totalDuration).toInt().coerceIn(0, 99)
+                if (timeProgress > download.progress) {
+                    download.progress = timeProgress
+                }
             }
+            // ANZ <--
             
             if (now - lastUpdate > 500L) {
                 lastUpdate = now
@@ -1430,6 +1517,9 @@ class Downloader(
                 ffmpegOptions,
                 {
                     if (it.returnCode.isValueSuccess) {
+                        // ANZ -->
+                        download.progress = 100
+                        // ANZ <--
                         val finalFile = java.io.File(sandboxDir, "$filename.mkv")
                         // INSTANT: renameTo works because both are in sandboxDir
                         if (!tmpFile.renameTo(finalFile)) {
@@ -1439,6 +1529,9 @@ class Downloader(
                         }
                         continuation.resume(finalFile)
                     } else {
+                        // ANZ -->
+                        tmpFile.delete()
+                        // ANZ <--
                         if (it.returnCode.isValueCancel) {
                             continuation.cancel()
                         } else {
@@ -1451,34 +1544,130 @@ class Downloader(
             )
             continuation.invokeOnCancellation {
                 session.cancel()
+                // ANZ -->
+                tmpFile.delete()
+                // ANZ <--
             }
         }
     }
 
-    private fun getFFmpegOptions(video: Video, headerOptions: String, ffmpegFilename: String): Array<String> {
-        fun formatInputs(tracks: List<Track>) = tracks.joinToString(" ", postfix = " ") {
-            buildList {
-                if (it.url.startsWith("http")) add(headerOptions)
-                add("-i")
-                add("\"${it.url}\"")
-            }.joinToString(" ")
+    // ANZ -->
+    private fun getFFmpegOptions(
+        video: Video,
+        headerString: String,
+        ffmpegFilename: String,
+        threadCount: Int = 4,
+    ): Array<String> { // ANZ
+        fun MutableList<String>.addNetworkOptions() {
+            if (headerString.isNotBlank()) {
+                add("-headers")
+                add(headerString)
+            }
+            add("-reconnect")
+            add("1")
+            add("-reconnect_streamed")
+            add("1")
+            add("-reconnect_on_network_error")
+            add("1")
+            add("-reconnect_on_http_error")
+            add("5xx")
+            add("-reconnect_delay_max")
+            add("5")
+            add("-rw_timeout")
+            add("15000000")
+            add("-multiple_requests")
+            add("1")
+            add("-tcp_nodelay")
+            add("1")
+            add("-recv_buffer_size")
+            add("1048576")
         }
 
-        val audioInputs = formatInputs(video.audioTracks)
-        val audioMaps = video.audioTracks.indices.joinToString(" ") { "-map ${it + 1}:a" }
-        val audioMetadata = video.audioTracks.mapIndexed { i, t -> "-metadata:s:a:$i \"title=${t.lang}\"" }.joinToString(" ")
+        return buildList {
+            add("-y")
 
-        val command = listOf(
-            if (video.videoUrl.startsWith("http")) headerOptions else "",
-            "-i \"${video.videoUrl}\"", audioInputs,
-            "-map 0:v", audioMaps, "-map 0:a?",
-            "-f matroska -c:a copy -c:v copy",
-            audioMetadata,
-            "\"$ffmpegFilename\" -y"
-        ).filter { it.isNotBlank() }.joinToString(" ")
+            // Primary video input
+            if (video.videoUrl.startsWith("http", ignoreCase = true)) {
+                addNetworkOptions()
+            }
+            add("-thread_queue_size")
+            add("4096")
+            add("-i")
+            add(video.videoUrl)
 
-        return FFmpegKitConfig.parseArguments(command)
+            // Audio track inputs
+            video.audioTracks.forEach { track ->
+                if (track.url.startsWith("http", ignoreCase = true)) {
+                    addNetworkOptions()
+                }
+                add("-thread_queue_size")
+                add("4096")
+                add("-i")
+                add(track.url)
+            }
+
+            // Stream mapping
+            add("-map")
+            add("0:v")
+            video.audioTracks.indices.forEach { index ->
+                add("-map")
+                add("${index + 1}:a")
+            }
+            add("-map")
+            add("0:a?")
+
+            // Output codecs and container options
+            add("-f")
+            add("matroska")
+            add("-c:v")
+            add("copy")
+            add("-c:a")
+            add("copy")
+            add("-reserve_index_space")
+            add("100k")
+            add("-max_interleave_delta")
+            add("0")
+            add("-cluster_size_limit")
+            add("2097152")
+            add("-threads")
+            add(threadCount.toString())
+            add("-filter_threads")
+            add(threadCount.toString())
+
+            // Track metadata
+            video.audioTracks.forEachIndexed { i, t ->
+                if (t.lang.isNotBlank()) {
+                    add("-metadata:s:a:$i")
+                    add("title=${t.lang}")
+                }
+            }
+
+            // Destination file
+            add(ffmpegFilename)
+        }.toTypedArray()
     }
+
+    private fun extractMpdDuration(url: String, headers: okhttp3.Headers?): Long {
+        return try {
+            val req = Request.Builder().url(url).apply {
+                if (headers != null) headers(headers)
+            }.build()
+            val body = networkHelper.client.newCall(req).execute().use { it.body?.string() } ?: return 0L
+            val match = Regex("""mediaPresentationDuration="PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?""").find(body)
+            if (match != null) {
+                val (h, m, s) = match.destructured
+                val hours = h.toLongOrNull() ?: 0L
+                val mins = m.toLongOrNull() ?: 0L
+                val secs = s.toDoubleOrNull()?.toLong() ?: 0L
+                hours * 3600 + mins * 60 + secs
+            } else {
+                0L
+            }
+        } catch (_: Exception) {
+            0L
+        }
+    }
+    // ANZ <--
 
     private suspend fun nativeDashMuxDownload(download: Download, sandboxDir: java.io.File, filename: String): java.io.File = ffmpegDownload(download, sandboxDir, filename)
     private suspend fun torrentDownload(download: Download, sandboxDir: File, filename: String, destDir: UniFile? = null): UniFile {

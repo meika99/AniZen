@@ -85,11 +85,14 @@ data class Download(
         }
         totalBytesAccumulator.set(bytesRead)
         
-        val newProgress = when {
-            totalSize > 0 -> (100 * bytesRead / totalSize).toInt()
-            totalSegments > 0 -> (100 * downloadedSegments / totalSegments).toInt()
-            else -> -1
+        // ANZ -->
+        val newProgress = when { // ANZ
+            totalSize > 0 -> (100 * bytesRead / totalSize).toInt().coerceIn(0, 100)
+            totalSegments > 0 -> (100 * downloadedSegments / totalSegments).toInt().coerceIn(0, 100)
+            progress > 0 -> progress
+            else -> 0
         }
+        // ANZ <--
         
         calculateSpeed(bytesRead)
 
@@ -142,18 +145,29 @@ data class Download(
 
             // Update Downloaded Size String
             downloadedSize = formatSize(bytesRead)
-            if (totalSize > 0) {
+            // ANZ -->
+            // Only display total size when totalSize is strictly greater than bytesRead
+            if (totalSize > bytesRead) { // ANZ
                 downloadedSize += " / " + formatSize(totalSize)
             }
+            // ANZ <--
 
             // Calculate ETA
-            if (totalSize > 0 && smoothSpeed > 0) {
+            // ANZ -->
+            if (totalSize > bytesRead && smoothSpeed > 0) {
                 val remainingBytes = totalSize - bytesRead
-                val remainingSeconds = (remainingBytes / smoothSpeed).toLong()
+                val remainingSeconds = (remainingBytes / smoothSpeed).toLong().coerceAtLeast(0L)
+                eta = formatRemainingTime(remainingSeconds)
+            } else if (totalDuration > 0 && progress > 0 && smoothSpeed > 0) { // ANZ
+                val downloadedFraction = (progress / 100.0).coerceIn(0.01, 1.0)
+                val estimatedTotal = bytesRead / downloadedFraction
+                val remainingBytes = (estimatedTotal - bytesRead).toLong().coerceAtLeast(0L)
+                val remainingSeconds = (remainingBytes / smoothSpeed).toLong().coerceAtLeast(0L)
                 eta = formatRemainingTime(remainingSeconds)
             } else {
                 eta = ""
             }
+            // ANZ <--
 
             lastUpdateTime = now
             lastBytesRead.set(bytesRead)

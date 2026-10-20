@@ -48,8 +48,9 @@ class DownloadHolder(private val view: View, val adapter: DownloadAdapter) :
             binding.downloadProgress.progress = 0
             binding.downloadProgress.max = 1
             binding.downloadProgressText.text = ""
-            binding.granularProgress.visibility = View.VISIBLE
-            binding.granularProgress.bind(download)
+            // ANZ -->
+            binding.granularProgress.visibility = View.GONE
+            // ANZ <--
         } else {
             binding.downloadProgress.max = 100
             notifyProgress()
@@ -64,8 +65,17 @@ class DownloadHolder(private val view: View, val adapter: DownloadAdapter) :
         if (binding.downloadProgress.max == 1) {
             binding.downloadProgress.max = 100
         }
-        binding.granularProgress.visibility = View.VISIBLE
-        binding.granularProgress.bind(download)
+        // ANZ -->
+        val isDash = download.engineType?.contains("DASH") == true // ANZ
+        val showGranular = !isDash && (
+            (download.engineType == "HLS" && download.totalSegments > 1) ||
+            (download.activeThreads > 1)
+        )
+        binding.granularProgress.visibility = if (showGranular) View.VISIBLE else View.GONE
+        if (showGranular) {
+            binding.granularProgress.bind(download)
+        }
+        // ANZ <--
         
         if (download.progress == 0) {
             binding.downloadProgress.isIndeterminate = true
@@ -90,27 +100,41 @@ class DownloadHolder(private val view: View, val adapter: DownloadAdapter) :
         val statusText = buildString {
             when (download.status) {
                 Download.State.MERGING -> {
-                    append(if (isDash) "Processing adaptive streams..." else "Merging...").append(" (").append(download.progress).append("%)")
+                    // ANZ -->
+                    val p = if (download.progress > 0) " (${download.progress}%)" else ""
+                    append(if (isDash) "Processing adaptive streams..." else "Merging...").append(p)
+                    // ANZ <--
                     append("\n")
                 }
                 Download.State.DECRYPTING -> {
-                    append("Decrypting... (").append(download.progress).append("%)")
+                    // ANZ -->
+                    val p = if (download.progress > 0) " (${download.progress}%)" else ""
+                    append("Decrypting...").append(p)
+                    // ANZ <--
                     append("\n")
                 }
                 Download.State.FINALIZING -> {
-                    append("Finalizing... (").append(download.progress).append("%)")
+                    // ANZ -->
+                    val p = if (download.progress > 0) " (${download.progress}%)" else ""
+                    append("Finalizing...").append(p)
+                    // ANZ <--
                     append("\n")
                 }
                 else -> {
                     // Line 1: Progress & Size
+                    // ANZ -->
                     if (sizeInfo.isNotEmpty()) {
-                        append(sizeInfo).append(" (").append(download.progress).append("%)")
+                        append(sizeInfo) // ANZ
+                        if (download.progress > 0) {
+                            append(" (").append(download.progress).append("%)")
+                        }
                     } else if (download.progress > 0) {
                         append(download.progress).append("%")
                     } else {
                         append("0% • Starting...")
                     }
                     append("\n")
+                    // ANZ <--
                 }
             }
 
@@ -125,7 +149,9 @@ class DownloadHolder(private val view: View, val adapter: DownloadAdapter) :
             }
             
             // Line 3: Connection Intelligence
-            append("Threads: ").append(if (isDash) 1 else download.activeThreads).append(" Active")
+            // ANZ -->
+            append("Threads: ").append(download.activeThreads.coerceAtLeast(1)).append(" Active")
+            // ANZ <--
             if (download.totalSegments > 0) {
                 append(" • ").append(if (isHls) "Segments: " else "Parts: ")
                 append(download.downloadedSegments).append("/").append(download.totalSegments)
