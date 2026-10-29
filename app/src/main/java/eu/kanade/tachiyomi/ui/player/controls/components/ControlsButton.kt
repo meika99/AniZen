@@ -18,6 +18,31 @@
 package eu.kanade.tachiyomi.ui.player.controls.components
 
 import androidx.compose.foundation.border
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material.icons.filled.FastForward
@@ -203,6 +228,146 @@ fun FilledControlsButton(
     }
     // ANZ <--
 }
+
+// ANZ -->
+/**
+ * Icon-only dark glass circle, same language as the centre buttons and the side sliders: dark fill
+ * with an accent glow at the bottom, thin gradient border, small specular arc, springy press and a
+ * light haptic tick. [active] lights it up with the accent colour, [pulse] makes the glow breathe
+ * softly to draw attention (used by the skip-intro prompt). Every animated value is read in the
+ * draw phase, so nothing recomposes per frame.
+ */
+@Composable
+fun GlassIconButton(
+    icon: ImageVector,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onLongClick: () -> Unit = {},
+    diameter: Dp = 42.dp,
+    iconSize: Dp = 22.dp,
+    active: Boolean = true,
+    pulse: Boolean = false,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.88f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "glass_icon_scale",
+    )
+    val lit = animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = tween(durationMillis = 240),
+        label = "glass_icon_lit",
+    )
+    val breathe: State<Float>? = if (pulse) {
+        rememberInfiniteTransition(label = "glass_icon_pulse").animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "glass_icon_pulse_value",
+        )
+    } else {
+        null
+    }
+    val haptic = LocalHapticFeedback.current
+    val clickEvent = LocalPlayerButtonsClickEvent.current
+    val accent = MaterialTheme.colorScheme.primary
+    val accentLight = remember(accent) { lerp(accent, Color.White, 0.72f) }
+    val neutralTop = Color.White.copy(alpha = 0.92f)
+    val neutralBottom = Color.White.copy(alpha = 0.62f)
+
+    Box(
+        modifier = modifier
+            .size(diameter)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.34f))
+            .drawBehind {
+                val l = lit.value
+                val p = breathe?.value ?: 0f
+                // glass fill with an accent glow pooling at the bottom
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.15f),
+                            Color.White.copy(alpha = 0.03f),
+                            accent.copy(alpha = ((0.06f + 0.20f * l) * (1f + 0.5f * p)).coerceIn(0f, 1f)),
+                        ),
+                    ),
+                )
+                // small specular arc, top-left
+                val inset = size.minDimension * 0.16f
+                drawArc(
+                    color = Color.White.copy(alpha = 0.40f),
+                    startAngle = 200f,
+                    sweepAngle = 56f,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = Size(size.width - inset * 2, size.height - inset * 2),
+                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round),
+                )
+                // hairline edge: bright on top, accent below
+                val stroke = 1.dp.toPx()
+                drawCircle(
+                    brush = Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.55f),
+                            accent.copy(alpha = ((0.20f + 0.45f * l) * (1f + 0.35f * p)).coerceIn(0f, 1f)),
+                        ),
+                    ),
+                    radius = (size.minDimension - stroke) / 2f,
+                    style = Stroke(width = stroke),
+                )
+            }
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = ripple(color = accentLight),
+                onClick = {
+                    clickEvent()
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
+                onLongClick = onLongClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        // The glyph is painted with a vertical gradient: neutral white when off, light accent -> accent when on.
+        Crossfade(
+            targetState = icon,
+            modifier = Modifier
+                .size(iconSize)
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    val l = lit.value
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            listOf(lerp(neutralTop, accentLight, l), lerp(neutralBottom, accent, l)),
+                        ),
+                        blendMode = BlendMode.SrcIn,
+                    )
+                },
+            animationSpec = tween(durationMillis = 180),
+            label = "glass_icon_swap",
+        ) { current ->
+            Icon(
+                imageVector = current,
+                contentDescription = contentDescription,
+                tint = Color.White,
+                modifier = Modifier.size(iconSize),
+            )
+        }
+    }
+}
+// ANZ <--
 
 @Preview
 @Composable
