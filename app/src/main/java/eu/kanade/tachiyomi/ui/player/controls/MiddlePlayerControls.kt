@@ -6,6 +6,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.graphics.res.animatedVectorResource
 import androidx.compose.animation.graphics.res.rememberAnimatedVectorPainter
 import androidx.compose.animation.graphics.vector.AnimatedImageVector
@@ -204,7 +205,11 @@ private fun Modifier.accentGradientFill(top: Color, bottom: Color): Modifier = t
     .drawWithContent {
         drawContent()
         drawRect(
-            brush = Brush.verticalGradient(listOf(top, bottom)),
+            brush = Brush.verticalGradient(
+                0f to lerp(top, Color.White, 0.45f),
+                0.45f to top,
+                1f to bottom,
+            ),
             blendMode = BlendMode.SrcIn,
         )
     }
@@ -234,9 +239,12 @@ private fun SkipCircleButton(
 }
 
 /**
- * Dark translucent glass circle, same language as the side sliders: dark tinted fill with a faint accent
- * glow at the bottom, thin gradient border (bright on top, accent below), small specular arc, spring
- * bounce on press and a light haptic tick.
+ * Domed dark glass, built only from cheap draw ops (no blur):
+ *  - a near-black body that is a touch lighter at the upper-left, like a lit convex surface;
+ *  - an accent glow pooling at the bottom and a soft one behind the icon;
+ *  - a glossy highlight across the upper half, a specular arc and a tiny bright dot;
+ *  - an inner edge shadow for depth and a two-line rim (bright top-left, accent bottom-right);
+ *  - springy press (it also lights up a little more) plus a light haptic tick.
  */
 @Composable
 private fun GlassCircleButton(
@@ -254,12 +262,18 @@ private fun GlassCircleButton(
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "glass_button_scale",
     )
+    // read in the draw phase only, so pressing never recomposes the button
+    val press = animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = tween(durationMillis = 140),
+        label = "glass_button_press",
+    )
     val haptic = LocalHapticFeedback.current
     val clickEvent = LocalPlayerButtonsClickEvent.current
     val (accentTop, accentBase) = rememberGlassAccent()
     val k = if (enabled) 1f else 0.45f
-    val glowAlpha = if (hero) 0.24f else 0.12f
-    val borderAccent = if (hero) 0.6f else 0.34f
+    val pool = if (hero) 0.42f else 0.30f
+    val rimAccent = if (hero) 0.85f else 0.60f
 
     Box(
         modifier = modifier
@@ -269,38 +283,104 @@ private fun GlassCircleButton(
                 scaleY = scale
             }
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.34f * k))
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.15f * k),
-                        Color.White.copy(alpha = 0.03f * k),
-                        accentBase.copy(alpha = glowAlpha * k),
-                    ),
-                ),
-            )
             .drawBehind {
-                val inset = size.minDimension * 0.14f
+                val w = size.width
+                val h = size.height
+                val d = size.minDimension
+                val pr = press.value
+
+                // body: deep, but lighter towards the upper-left so it reads as a convex surface
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF2C2C32).copy(alpha = 0.88f * k),
+                            Color(0xFF09090B).copy(alpha = 0.92f * k),
+                        ),
+                        center = Offset(w * 0.36f, h * 0.28f),
+                        radius = d * 0.95f,
+                    ),
+                )
+                // accent pooling at the bottom
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            accentBase.copy(alpha = ((pool + 0.20f * pr) * k).coerceIn(0f, 1f)),
+                            Color.Transparent,
+                        ),
+                        center = Offset(w * 0.5f, h * 1.02f),
+                        radius = d * 0.80f,
+                    ),
+                )
+                // soft accent behind the icon
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            accentBase.copy(alpha = ((0.10f + 0.18f * pr) * k).coerceIn(0f, 1f)),
+                            Color.Transparent,
+                        ),
+                        center = center,
+                        radius = d * 0.44f,
+                    ),
+                )
+                // inner edge shadow: darkens the rim so the middle feels raised
+                drawRect(
+                    brush = Brush.radialGradient(
+                        0.60f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.42f * k),
+                        center = center,
+                        radius = d * 0.5f,
+                    ),
+                )
+                // gloss across the upper half
+                drawOval(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = (0.28f + 0.06f * pr) * k),
+                            Color.White.copy(alpha = 0.02f * k),
+                        ),
+                        startY = d * 0.05f,
+                        endY = d * 0.52f,
+                    ),
+                    topLeft = Offset(d * 0.13f, d * 0.05f),
+                    size = Size(w - d * 0.26f, d * 0.47f),
+                )
+                // specular arc and a tiny bright dot, top-left
+                val inset = d * 0.14f
                 drawArc(
-                    color = Color.White.copy(alpha = 0.40f * k),
+                    color = Color.White.copy(alpha = 0.50f * k),
                     startAngle = 200f,
                     sweepAngle = 56f,
                     useCenter = false,
                     topLeft = Offset(inset, inset),
-                    size = Size(size.width - inset * 2, size.height - inset * 2),
+                    size = Size(w - inset * 2, h - inset * 2),
                     style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
                 )
-            }
-            .border(
-                width = if (hero) 1.3.dp else 1.dp,
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.55f * k),
-                        accentBase.copy(alpha = borderAccent * k),
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.75f * k),
+                    radius = 1.6.dp.toPx(),
+                    center = Offset(w * 0.27f, h * 0.2f),
+                )
+                // rim: bright on the upper-left, accent on the lower-right, plus a faint inner line
+                val rimWidth = (if (hero) 1.5.dp else 1.2.dp).toPx()
+                drawCircle(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.78f * k),
+                            Color.White.copy(alpha = 0.07f * k),
+                            accentTop.copy(alpha = (rimAccent * k).coerceIn(0f, 1f)),
+                        ),
+                        start = Offset.Zero,
+                        end = Offset(w, h),
                     ),
-                ),
-                shape = CircleShape,
-            )
+                    radius = (d - rimWidth) / 2f,
+                    style = Stroke(width = rimWidth),
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.09f * k),
+                    radius = d / 2f - rimWidth - 2.5.dp.toPx(),
+                    style = Stroke(width = 0.8.dp.toPx()),
+                )
+            }
             .clickable(
                 interactionSource = interaction,
                 indication = ripple(color = accentTop),
