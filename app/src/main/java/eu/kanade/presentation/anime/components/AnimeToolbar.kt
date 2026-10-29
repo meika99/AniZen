@@ -123,6 +123,8 @@ fun AnimeToolbar(
     backgroundAlphaProvider: () -> Float = titleAlphaProvider,
     // ANZ -->
     slide: ToolbarSlide? = null,
+    // Colour of the soft fade behind the icons (read in the draw phase); defaults to the page colour.
+    fadeTint: (() -> Color)? = null,
     // ANZ <--
 ) {
     val statusBarPadding = WindowInsets.systemBars.only(WindowInsetsSides.Top).asPaddingValues()
@@ -155,11 +157,12 @@ fun AnimeToolbar(
                 } else {
                     val strength = backgroundAlphaProvider().coerceIn(0f, 1f) * 0.9f
                     if (strength > 0.01f) {
+                        val tint = fadeTint?.invoke() ?: fadeColor
                         drawRect(
                             brush = Brush.verticalGradient(
                                 colors = listOf(
-                                    fadeColor.copy(alpha = strength),
-                                    fadeColor.copy(alpha = strength * 0.6f),
+                                    tint.copy(alpha = strength),
+                                    tint.copy(alpha = strength * 0.6f),
                                     Color.Transparent,
                                 ),
                             ),

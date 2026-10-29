@@ -94,6 +94,15 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -200,6 +209,20 @@ fun AnimeInfoBox(
             alpha = if (isDarkPage) 0.9f else 0.6f,
             modifier = Modifier
                 .matchParentSize()
+                // The artwork melts away towards the bottom so the coloured page shows through.
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.Black,
+                            0.45f to Color.Black,
+                            0.72f to Color.Black.copy(alpha = 0.38f),
+                            1f to Color.Transparent,
+                        ),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
                 .clipToBounds()
                 .graphicsLayer {
                     // Slight zoom hides the soft edges the blur leaves around the image.
@@ -215,9 +238,10 @@ fun AnimeInfoBox(
                 .background(
                     Brush.verticalGradient(
                         0f to deepColor.copy(alpha = 0.50f),
-                        0.45f to deepColor.copy(alpha = 0.22f),
-                        0.85f to backgroundColor.copy(alpha = 0.92f),
-                        1f to backgroundColor,
+                        0.40f to deepColor.copy(alpha = 0.24f),
+                        0.62f to deepColor.copy(alpha = 0.34f),
+                        0.86f to deepColor.copy(alpha = 0.20f),
+                        1f to Color.Transparent,
                     ),
                 ),
         )
@@ -348,7 +372,24 @@ fun AnimeActionRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)),
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f),
+                        ),
+                    ),
+                )
+                .border(
+                    width = 0.75.dp,
+                    brush = Brush.verticalGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                        ),
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AnimeActionButton(
@@ -912,7 +953,7 @@ private fun AnimeSummary(
     modifier: Modifier = Modifier,
 ) {
     // ANZ -->
-    val cardColor = MaterialTheme.colorScheme.surfaceContainerLow
+    val glassTint = MaterialTheme.colorScheme.onSurface
     val shape = RoundedCornerShape(20.dp)
     Box(
         modifier = modifier
@@ -923,7 +964,18 @@ private fun AnimeSummary(
                 focusedScale = 1.01f,
             )
             .clip(shape)
-            .background(cardColor)
+            .background(
+                Brush.verticalGradient(
+                    listOf(glassTint.copy(alpha = 0.10f), glassTint.copy(alpha = 0.04f)),
+                ),
+            )
+            .border(
+                width = 0.75.dp,
+                brush = Brush.verticalGradient(
+                    listOf(glassTint.copy(alpha = 0.22f), glassTint.copy(alpha = 0.05f)),
+                ),
+                shape = shape,
+            )
             .clickableNoIndication(onClick = onExpand),
     ) {
         SelectionContainer {
@@ -931,7 +983,26 @@ private fun AnimeSummary(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(if (!expanded) Modifier.height(124.dp) else Modifier)
-                    .clipToBounds(),
+                    .clipToBounds()
+                    .then(
+                        if (!expanded) {
+                            Modifier
+                                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                                .drawWithContent {
+                                    drawContent()
+                                    drawRect(
+                                        brush = Brush.verticalGradient(
+                                            0f to Color.Black,
+                                            0.55f to Color.Black,
+                                            1f to Color.Transparent,
+                                        ),
+                                        blendMode = BlendMode.DstIn,
+                                    )
+                                }
+                        } else {
+                            Modifier
+                        },
+                    ),
             ) {
                 MarkdownRender(
                     content = description,
@@ -952,20 +1023,6 @@ private fun AnimeSummary(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .then(
-                    if (!expanded) {
-                        Modifier.background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    cardColor,
-                                ),
-                            ),
-                        )
-                    } else {
-                        Modifier
-                    },
-                )
                 .padding(top = 28.dp, bottom = 6.dp),
             contentAlignment = Alignment.Center,
         ) {
@@ -1070,5 +1127,105 @@ private fun RowScope.AnimeActionButton(
             textAlign = TextAlign.Center,
         )
     }
+}
+// ANZ <--
+
+// ANZ -->
+/**
+ * Page atmosphere for the details screen: a dark but coloured wash taken from the cover, falling
+ * smoothly from the top to the bottom of the screen (instead of cutting to plain black), plus
+ * three soft neighbouring-hue lights. Every animated value is read in the draw phase only, so the
+ * colour crossfade never recomposes the screen.
+ */
+@Stable
+class AnimeAmbient internal constructor(
+    private val seedColor: State<Color>,
+    private val seeded: State<Float>,
+    private val background: Color,
+) {
+    private val isDark = background.luminance() < 0.5f
+
+    /** Tint at the very top. The toolbar fade uses the same colour so both always match. */
+    val top: Color
+        get() {
+            val mixed = lerp(background, seedColor.value, 0.14f + 0.30f * seeded.value)
+            // Light covers must never wash the page out: keep white text comfortably readable.
+            return if (isDark) capLuminance(mixed, 0.12f) else mixed
+        }
+
+    internal fun draw(scope: DrawScope) = with(scope) {
+        val seed = seedColor.value
+        val strength = seeded.value
+        val t = top
+        val d = lerp(background, seed, 0.12f + 0.08f * strength)
+        val m = lerp(d, t, 0.40f)
+        val boost = 0.65f + 0.35f * strength
+        val lightA = lerp(seed, Color.White, 0.12f)
+        val lightB = ambientHueShift(seed, 55f)
+        val lightC = ambientHueShift(seed, -45f)
+        val w = size.width
+        val h = size.height
+        drawRect(brush = Brush.verticalGradient(0f to t, 0.45f to m, 1f to d))
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(lightA.copy(alpha = 0.26f * boost), lightA.copy(alpha = 0f)),
+                center = Offset(w * 0.1f, h * 0.05f),
+                radius = w * 1.15f,
+            ),
+        )
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(lightB.copy(alpha = 0.20f * boost), lightB.copy(alpha = 0f)),
+                center = Offset(w, h * 0.58f),
+                radius = w * 1.05f,
+            ),
+        )
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(lightC.copy(alpha = 0.16f * boost), lightC.copy(alpha = 0f)),
+                center = Offset(0f, h * 0.92f),
+                radius = w,
+            ),
+        )
+    }
+}
+
+@Composable
+fun rememberAnimeAmbient(seed: Int?): AnimeAmbient {
+    val background = MaterialTheme.colorScheme.background
+    val accent = MaterialTheme.colorScheme.primary
+    val seedColor = animateColorAsState(
+        targetValue = seed?.let { Color(it) } ?: accent,
+        animationSpec = tween(durationMillis = 700),
+        label = "animeAmbientSeed",
+    )
+    val seeded = animateFloatAsState(
+        targetValue = if (seed != null) 1f else 0f,
+        animationSpec = tween(durationMillis = 700),
+        label = "animeAmbientSeeded",
+    )
+    return remember(background, seedColor, seeded) { AnimeAmbient(seedColor, seeded, background) }
+}
+
+/** Full-screen backdrop; sits behind the (transparent) Scaffold. */
+@Composable
+fun AnimeAmbientBackdrop(ambient: AnimeAmbient, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.drawBehind { ambient.draw(this) })
+}
+
+private fun capLuminance(color: Color, max: Float): Color {
+    val l = color.luminance()
+    if (l <= max || l <= 0f) return color
+    // Oklab lightness is roughly the cube root of luminance, and lerp() works in Oklab.
+    return lerp(Color.Black, color, Math.cbrt((max / l).toDouble()).toFloat())
+}
+
+private fun ambientHueShift(color: Color, degrees: Float): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+    hsv[0] = ((hsv[0] + degrees) % 360f + 360f) % 360f
+    hsv[1] = (hsv[1] * 1.1f).coerceIn(0f, 1f)
+    hsv[2] = hsv[2].coerceAtLeast(0.55f)
+    return Color(android.graphics.Color.HSVToColor(hsv))
 }
 // ANZ <--

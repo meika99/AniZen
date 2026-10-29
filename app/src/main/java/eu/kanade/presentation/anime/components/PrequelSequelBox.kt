@@ -22,6 +22,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -158,7 +161,14 @@ private fun RelationBanner(
                 focusedBackgroundAlpha = 0.25f,
             )
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .background(Color.Black.copy(alpha = 0.30f))
+            .border(
+                width = 0.75.dp,
+                brush = Brush.linearGradient(
+                    listOf(Color.White.copy(alpha = 0.28f), Color.White.copy(alpha = 0.04f)),
+                ),
+                shape = shape,
+            )
             .clickable { onRelationClick(title) },
     ) {
         // Soft blurred cover as the card atmosphere
@@ -166,10 +176,21 @@ private fun RelationBanner(
             model = edge.node.coverImage?.large,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            alpha = 0.30f,
+            alpha = 0.36f,
             modifier = Modifier
                 .matchParentSize()
                 .blur(14.dp),
+        )
+        // Soft accent glint across the corner
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.linearGradient(
+                        0f to accent.copy(alpha = 0.20f),
+                        0.55f to Color.Transparent,
+                    ),
+                ),
         )
 
         Row(

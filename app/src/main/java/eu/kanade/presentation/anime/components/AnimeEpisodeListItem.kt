@@ -59,6 +59,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -212,7 +214,8 @@ fun AnimeEpisodeListItem(
  * springy press effect (row squeezes, thumbnail zooms).
  */
 private const val SeenAlpha = 0.5f
-private val ThumbShape = RoundedCornerShape(16.dp)
+private val ThumbShape = RoundedCornerShape(14.dp)
+private val CardShape = RoundedCornerShape(22.dp)
 private val EpisodeTitleRegex = Regex("""^\s*(\p{L}[\p{L}\s.]*?)\s*(\d+(?:[.,]\d+)?)\s*$""")
 
 /** "Episodio 12" -> ("Episodio", "12"); anything that does not fit that shape -> null. */
@@ -265,6 +268,20 @@ private fun EpisodeItemRow(
     val inProgress = !seen && watchProgress != null
     val isFiller = fillermark || isAutoFiller
 
+    // Glass card: translucent fill, hairline edge and a soft accent glint (stronger while in progress).
+    val tint = MaterialTheme.colorScheme.onSurface
+    val accent = MaterialTheme.colorScheme.primary
+    val glass = if (seen) 0.6f else 1f
+    val edgeBrush = remember(tint, accent, inProgress, seen) {
+        if (inProgress) {
+            Brush.verticalGradient(listOf(accent.copy(alpha = 0.60f), accent.copy(alpha = 0.14f)))
+        } else {
+            Brush.verticalGradient(
+                listOf(tint.copy(alpha = 0.22f * (if (seen) 0.6f else 1f)), tint.copy(alpha = 0.04f)),
+            )
+        }
+    }
+
     Row(
         modifier = modifier
             .graphicsLayer {
@@ -275,13 +292,33 @@ private fun EpisodeItemRow(
             }
             .tvListItemFocusHighlight()
             .selectedBackground(selected)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(CardShape)
+            .drawBehind {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        listOf(tint.copy(alpha = 0.10f * glass), tint.copy(alpha = 0.04f * glass)),
+                    ),
+                )
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            accent.copy(alpha = if (inProgress) 0.30f else 0.16f * glass),
+                            Color.Transparent,
+                        ),
+                        center = Offset(size.width, 0f),
+                        radius = size.width * 0.6f,
+                    ),
+                )
+            }
+            .border(0.75.dp, edgeBrush, CardShape)
             .combinedClickable(
                 interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
-            .padding(start = 16.dp, top = 10.dp, end = 8.dp, bottom = 10.dp),
+            .padding(start = 8.dp, top = 8.dp, end = 4.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (!previewUrl.isNullOrBlank()) {
