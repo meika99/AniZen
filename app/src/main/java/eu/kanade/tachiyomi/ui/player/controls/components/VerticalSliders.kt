@@ -28,19 +28,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeDown
-import androidx.compose.material.icons.automirrored.filled.VolumeMute
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.BrightnessHigh
-import androidx.compose.material.icons.filled.BrightnessLow
-import androidx.compose.material.icons.filled.BrightnessMedium
-import androidx.compose.material.icons.filled.ModeNight
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,12 +37,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -119,9 +108,9 @@ fun VerticalSlider(
 
 // ANZ -->
 /**
- * A glass tube with coloured "liquid" inside: translucent capsule with a light edge, an inset
- * rounded fill with a soft vertical colour gradient, a bright meniscus line on top of the liquid
- * and a small specular highlight on the glass.
+ * A glass tube with coloured "liquid" inside: a soft coloured glow behind the glass, a translucent
+ * capsule with a light edge, an inset rounded fill with a soft vertical colour gradient, a bright
+ * meniscus line on top of the liquid, a specular highlight on the glass and a faint reflection band.
  */
 @Composable
 private fun VerticalSliderInternal(
@@ -135,6 +124,19 @@ private fun VerticalSliderInternal(
         modifier = modifier.height(136.dp).aspectRatio(0.5f),
         contentAlignment = Alignment.BottomCenter,
     ) {
+        // soft coloured halo behind the glass tube
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction = 0.85f)
+                .fillMaxHeight()
+                .clip(CircleShape)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(accentTop.copy(alpha = 0.20f), accentBottom.copy(alpha = 0.20f)),
+                    ),
+                )
+                .blur(16.dp),
+        )
         Box(
             modifier = Modifier
                 .fillMaxWidth(fraction = 0.62f)
@@ -168,10 +170,20 @@ private fun VerticalSliderInternal(
                 Box(
                     modifier = Modifier
                         .padding(top = 2.dp)
-                        .fillMaxWidth(fraction = 0.5f)
+                        .fillMaxWidth(fraction = 0.55f)
                         .height(3.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.6f)),
+                        .background(Color.White.copy(alpha = 0.75f)),
+                )
+                // faint glow just under the meniscus
+                Box(
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .fillMaxWidth(fraction = 0.7f)
+                        .height(10.dp)
+                        .clip(CircleShape)
+                        .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.Transparent)))
+                        .blur(3.dp),
                 )
             }
             if (overflowPercentage != null) {
@@ -201,6 +213,16 @@ private fun VerticalSliderInternal(
                     .clip(CircleShape)
                     .background(Color.White.copy(alpha = 0.30f)),
             )
+            // faint reflection band across the glass, a little below the highlight
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 5.dp, top = 46.dp)
+                    .width(2.dp)
+                    .height(18.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.10f)),
+            )
         }
     }
 }
@@ -218,26 +240,6 @@ private fun LevelLabel(text: String, color: Color) {
         color = color,
         textAlign = TextAlign.Center,
     )
-}
-
-/** Round tinted badge with the icon under the slider: coloured glass instead of a bare white icon. */
-@Composable
-private fun LevelBadge(icon: ImageVector, tint: Color) {
-    Box(
-        modifier = Modifier
-            .size(34.dp)
-            .clip(CircleShape)
-            .background(tint.copy(alpha = 0.16f))
-            .border(1.dp, tint.copy(alpha = 0.45f), CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(19.dp),
-        )
-    }
 }
 // ANZ <--
 
@@ -262,16 +264,6 @@ fun BrightnessSlider(
             overflowValue = (-brightness).coerceIn(0f..0.75f),
             accentTop = BrightnessTop,
             accentBottom = BrightnessBottom,
-        )
-        LevelBadge(
-            icon = when (percentage(brightness, positiveRange)) {
-                in -1f..0f -> Icons.Default.ModeNight
-                in 0f..0.3f -> Icons.Default.BrightnessLow
-                in 0.3f..0.6f -> Icons.Default.BrightnessMedium
-                in 0.6f..1f -> Icons.Default.BrightnessHigh
-                else -> Icons.Default.BrightnessMedium
-            },
-            tint = BrightnessTop,
         )
         // ANZ <--
     }
@@ -325,16 +317,6 @@ fun VolumeSlider(
                     .padding(horizontal = 4.dp, vertical = 4.dp),
             )
         }
-        LevelBadge(
-            icon = when (percentage) {
-                0 -> Icons.AutoMirrored.Default.VolumeOff
-                in 0..30 -> Icons.AutoMirrored.Default.VolumeMute
-                in 30..60 -> Icons.AutoMirrored.Default.VolumeDown
-                in 60..100 -> Icons.AutoMirrored.Default.VolumeUp
-                else -> Icons.AutoMirrored.Default.VolumeOff
-            },
-            tint = VolumeTop,
-        )
         // ANZ <--
     }
 }
