@@ -75,6 +75,9 @@ import androidx.compose.material3.FabPosition
 import kotlin.math.roundToInt
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.Color
+import eu.kanade.presentation.anime.components.AnimeAmbientBackdrop
+import eu.kanade.presentation.anime.components.rememberAnimeAmbient
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -487,17 +490,22 @@ private fun AnimeScreenSmallImpl(
     val vibrantColor = deferredVibrantColor ?: state.anime.asAnimeCover().vibrantCoverColor
 
     DynamicTachiyomiTheme(colorSeed = vibrantColor) {
+        // ANZ --> coloured page atmosphere behind the transparent Scaffold (replaces the plain black)
+        val ambient = rememberAnimeAmbient(vibrantColor)
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
         ) {
+            AnimeAmbientBackdrop(ambient = ambient, modifier = Modifier.matchParentSize())
+            // ANZ <--
             val scaffoldInsets = WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
             val isFABVisible = remember(state.anime.fetchType, state.hasUnseenEpisodes, isAnySelected) {
                 state.anime.fetchType != FetchType.Seasons && !isAnySelected && state.hasUnseenEpisodes
             }
             Scaffold(
                 hazeEnabled = false,
+                containerColor = Color.Transparent,
                 contentWindowInsets = scaffoldInsets,
                 floatingActionButtonPosition = FabPosition.Center,
                 floatingActionButton = {
@@ -538,6 +546,7 @@ private fun AnimeScreenSmallImpl(
                         titleAlphaProvider = { animatedTitleAlphaState.value },
                         slide = barSlide,
                         backgroundAlphaProvider = { animatedBgAlphaState.value },
+                        fadeTint = { ambient.top },
                         hasFilters = state.filterActive,
                         onBackClicked = internalOnBackPressed,
                         onClickFilter = onFilterClicked,
@@ -993,17 +1002,22 @@ fun AnimeScreenLargeImpl(
     val vibrantColor = vibrantColorState ?: state.anime.asAnimeCover().vibrantCoverColor
 
     DynamicTachiyomiTheme(colorSeed = vibrantColor) {
+        // ANZ --> coloured page atmosphere behind the transparent Scaffold (replaces the plain black)
+        val ambient = rememberAnimeAmbient(vibrantColor)
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
         ) {
+            AnimeAmbientBackdrop(ambient = ambient, modifier = Modifier.matchParentSize())
+            // ANZ <--
             val scaffoldInsets = WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
             val isFABVisible = remember(state.anime.fetchType, state.hasUnseenEpisodes, isAnySelected) {
                 state.anime.fetchType != FetchType.Seasons && !isAnySelected && state.hasUnseenEpisodes
             }
             Scaffold(
                 hazeEnabled = false,
+                containerColor = Color.Transparent,
                 contentWindowInsets = scaffoldInsets,
                 floatingActionButtonPosition = FabPosition.Center,
                 floatingActionButton = {
@@ -1041,6 +1055,7 @@ fun AnimeScreenLargeImpl(
                         title = state.anime.title,
                         titleAlphaProvider = { if (isAnySelected) 1f else animatedTitleAlphaState.value },
                         backgroundAlphaProvider = { animatedBgAlphaState.value },
+                        fadeTint = { ambient.top },
                         hasFilters = state.filterActive,
                         onBackClicked = internalOnBackPressed,
                         onClickFilter = onFilterButtonClicked,
