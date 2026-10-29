@@ -269,14 +269,16 @@ fun PlayerControls(
                 val swapVolumeAndBrightness by gesturePreferences.swapVolumeBrightness().collectAsState()
                 val reduceMotion by playerPreferences.reduceMotion().collectAsState()
 
+                // ANZ --> sliders leave a bit sooner (1.5 s after the last change instead of 2 s)
                 LaunchedEffect(volume, mpvVolume, isVolumeSliderShown) {
-                    delay(2000)
+                    delay(1500)
                     if (isVolumeSliderShown) viewModel.isVolumeSliderShown.update { false }
                 }
                 LaunchedEffect(brightness, isBrightnessSliderShown) {
-                    delay(2000)
+                    delay(1500)
                     if (isBrightnessSliderShown) viewModel.isBrightnessSliderShown.update { false }
                 }
+                // ANZ <--
                 AnimatedVisibility(
                     isBrightnessSliderShown,
                     enter =
