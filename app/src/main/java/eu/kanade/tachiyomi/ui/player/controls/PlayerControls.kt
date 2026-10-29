@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalRippleConfiguration
@@ -83,6 +84,7 @@ import eu.kanade.tachiyomi.ui.player.controls.components.BrightnessSlider
 import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
 import eu.kanade.tachiyomi.ui.player.controls.components.DoubleSpeedPlayerUpdate
 import eu.kanade.tachiyomi.ui.player.controls.components.FilledControlsButton
+import eu.kanade.tachiyomi.ui.player.controls.components.GlassIconButton
 import eu.kanade.tachiyomi.ui.player.controls.components.SeekbarWithTimers
 import eu.kanade.tachiyomi.ui.player.controls.components.videoTimerWidth
 import eu.kanade.tachiyomi.ui.player.controls.components.ThumbnailPreview
@@ -502,11 +504,15 @@ fun PlayerControls(
                         ) {
                             val skipIntroLabel = skipIntroButton
                             if (skipIntroLabel != null) {
-                                FilledControlsButton(
-                                    text = skipIntroLabel,
+                                // ANZ --> icon only: the text (e.g. "+85 s") stays just as the accessibility label
+                                GlassIconButton(
+                                    icon = Icons.Filled.FastForward,
+                                    contentDescription = skipIntroLabel,
                                     onClick = viewModel::onSkipIntro,
                                     onLongClick = viewModel::onSkipIntro,
+                                    pulse = true,
                                 )
+                                // ANZ <--
                             } else if (actionButton != null && customButtonTitle.isNotEmpty()) {
                                 // ANZ -->
                                 FilledControlsButton(
