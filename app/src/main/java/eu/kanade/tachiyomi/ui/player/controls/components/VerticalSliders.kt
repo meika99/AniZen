@@ -23,6 +23,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,7 +38,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -57,6 +57,10 @@ private val VolumeBottom = Color(0xFF3B9DF5)
 private val BrightnessTop = Color(0xFFFFE29A)
 private val BrightnessBottom = Color(0xFFFFA64D)
 // ANZ <--
+
+// The icon badge under each bar is gone; this empty slot has the same height so the bars (and their
+// numbers) stay exactly where they were.
+private val BadgeSlotHeight = 34.dp
 
 private fun percentage(value: Float, range: ClosedFloatingPointRange<Float>): Float {
     return ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
@@ -108,9 +112,11 @@ fun VerticalSlider(
 
 // ANZ -->
 /**
- * A glass tube with coloured "liquid" inside: a soft coloured glow behind the glass, a translucent
- * capsule with a light edge, an inset rounded fill with a soft vertical colour gradient, a bright
- * meniscus line on top of the liquid, a specular highlight on the glass and a faint reflection band.
+ * A slim glass tube with coloured "liquid" inside: translucent capsule on a faint dark backing (so it
+ * stays visible over bright scenes), a light edge, an inset rounded fill with a vertical colour
+ * gradient plus cylinder shading, a bright meniscus on top of the liquid and a soft specular
+ * highlight on the glass. No blur or outer glow: it is cheap to draw and cannot smear while it
+ * slides away.
  */
 @Composable
 private fun VerticalSliderInternal(
@@ -120,37 +126,26 @@ private fun VerticalSliderInternal(
     accentTop: Color,
     accentBottom: Color,
 ) {
+    // The box keeps its old size so the tube stays centred exactly where it was; only the tube got slimmer.
     Box(
         modifier = modifier.height(136.dp).aspectRatio(0.5f),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        // soft coloured halo behind the glass tube
         Box(
             modifier = Modifier
-                .fillMaxWidth(fraction = 0.85f)
+                .fillMaxWidth(fraction = 0.40f)
                 .fillMaxHeight()
                 .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.26f))
                 .background(
                     Brush.verticalGradient(
-                        listOf(accentTop.copy(alpha = 0.20f), accentBottom.copy(alpha = 0.20f)),
-                    ),
-                )
-                .blur(16.dp),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(fraction = 0.62f)
-                .fillMaxHeight()
-                .clip(CircleShape)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.07f)),
+                        listOf(Color.White.copy(alpha = 0.16f), Color.White.copy(alpha = 0.05f)),
                     ),
                 )
                 .border(
                     width = 1.dp,
                     brush = Brush.verticalGradient(
-                        listOf(Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0.08f)),
+                        listOf(Color.White.copy(alpha = 0.50f), Color.White.copy(alpha = 0.08f)),
                     ),
                     shape = CircleShape,
                 )
@@ -158,70 +153,84 @@ private fun VerticalSliderInternal(
             contentAlignment = Alignment.BottomCenter,
         ) {
             val targetHeight by animateFloatAsState(percentage, label = "vsliderheight")
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(targetHeight)
-                    .clip(CircleShape)
-                    .background(Brush.verticalGradient(listOf(accentTop, accentBottom))),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                // meniscus: a bright line on the surface of the liquid
+            // nothing is drawn at 0 so no stray line is left at the bottom of the tube
+            if (targetHeight > 0.012f) {
                 Box(
                     modifier = Modifier
-                        .padding(top = 2.dp)
-                        .fillMaxWidth(fraction = 0.55f)
-                        .height(3.dp)
+                        .fillMaxWidth()
+                        .fillMaxHeight(targetHeight)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.75f)),
-                )
-                // faint glow just under the meniscus
-                Box(
-                    modifier = Modifier
-                        .padding(top = 4.dp)
-                        .fillMaxWidth(fraction = 0.7f)
-                        .height(10.dp)
-                        .clip(CircleShape)
-                        .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.Transparent)))
-                        .blur(3.dp),
-                )
+                        .background(Brush.verticalGradient(listOf(accentTop, accentBottom)))
+                        .border(
+                            width = 0.75.dp,
+                            brush = Brush.verticalGradient(
+                                listOf(Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0f)),
+                            ),
+                            shape = CircleShape,
+                        ),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    // cylinder shading: light on the left edge, a little shade on the right
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.28f),
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.16f),
+                                    ),
+                                ),
+                            ),
+                    )
+                    // meniscus: a bright line on the surface of the liquid, fading out at both ends
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .fillMaxWidth(fraction = 0.62f)
+                            .height(2.5.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(Color.Transparent, Color.White.copy(alpha = 0.75f), Color.Transparent),
+                                ),
+                            ),
+                    )
+                }
             }
             if (overflowPercentage != null) {
                 val overflowHeight by animateFloatAsState(
                     targetValue = overflowPercentage,
                     label = "vslideroverflowheight",
                 )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(overflowHeight)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color(0xFFFF8A80).copy(alpha = 0.9f), Color(0xFFE5484D).copy(alpha = 0.9f)),
+                if (overflowHeight > 0.012f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(overflowHeight)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFFFF8A80).copy(alpha = 0.9f), Color(0xFFE5484D).copy(alpha = 0.9f)),
+                                ),
                             ),
-                        ),
-                )
+                    )
+                }
             }
-            // specular highlight on the glass
+            // specular highlight on the glass: fades out towards the bottom
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = 3.dp, top = 12.dp)
-                    .width(3.dp)
-                    .height(30.dp)
+                    .padding(start = 2.dp, top = 12.dp)
+                    .width(2.5.dp)
+                    .height(34.dp)
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.30f)),
-            )
-            // faint reflection band across the glass, a little below the highlight
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 5.dp, top = 46.dp)
-                    .width(2.dp)
-                    .height(18.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.10f)),
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.White.copy(alpha = 0.40f), Color.White.copy(alpha = 0f)),
+                        ),
+                    ),
             )
         }
     }
@@ -265,6 +274,7 @@ fun BrightnessSlider(
             accentTop = BrightnessTop,
             accentBottom = BrightnessBottom,
         )
+        Spacer(Modifier.height(BadgeSlotHeight))
         // ANZ <--
     }
 }
@@ -317,6 +327,7 @@ fun VolumeSlider(
                     .padding(horizontal = 4.dp, vertical = 4.dp),
             )
         }
+        Spacer(Modifier.height(BadgeSlotHeight))
         // ANZ <--
     }
 }
