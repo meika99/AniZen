@@ -6,7 +6,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -69,6 +71,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableFloatStateOf
@@ -80,12 +83,14 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -578,52 +583,62 @@ internal fun LibraryHome(
     // this inset keeps the first row clear of the icons.
     val topInset = contentPadding.calculateTopPadding()
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .nestedScroll(barConnection),
-        state = listState,
-        contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding() + BottomSpace),
-    ) {
-        if (searching) {
-            searchSection(
-                query = searchQuery.orEmpty(),
-                rows = searchRows,
-                columns = columns,
-                selectedIds = selectedIds,
-                actions = actions,
-                onGlobalSearch = onGlobalSearchClicked,
-                topInset = topInset,
-            )
-        } else {
-            item(key = "top", contentType = "top") {
-                HomeTop(
-                    tab = tab,
-                    counts = counts,
-                    episodesLeft = episodesLeft,
-                    ambientOwner = ambientOwner,
-                    heroes = shelves.heroes,
-                    pagerState = heroPager,
-                    selectedIds = selectedIds,
-                    actions = actions,
-                    topInset = topInset,
-                )
-            }
-            if (tab == LibraryHomeTab.Home) {
-                homeShelves(shelves = shelves, total = flat.size, selectedIds = selectedIds, actions = actions)
-            } else {
-                gridSection(
-                    tab = tab,
-                    genre = genre,
-                    count = gridCount,
-                    rows = gridRows,
+    // ANZ --> colourful page backdrop that stays put while the shelves scroll over it
+    Box(modifier = modifier.fillMaxSize()) {
+        AmbientBackdrop(
+            tab = tab,
+            heroes = shelves.heroes,
+            pagerState = heroPager,
+            ambientOwner = ambientOwner,
+            modifier = Modifier.fillMaxSize(),
+        )
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(barConnection),
+            state = listState,
+            contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding() + BottomSpace),
+        ) {
+            if (searching) {
+                searchSection(
+                    query = searchQuery.orEmpty(),
+                    rows = searchRows,
                     columns = columns,
                     selectedIds = selectedIds,
                     actions = actions,
+                    onGlobalSearch = onGlobalSearchClicked,
+                    topInset = topInset,
                 )
+            } else {
+                item(key = "top", contentType = "top") {
+                    HomeTop(
+                        tab = tab,
+                        counts = counts,
+                        episodesLeft = episodesLeft,
+                        heroes = shelves.heroes,
+                        pagerState = heroPager,
+                        selectedIds = selectedIds,
+                        actions = actions,
+                        topInset = topInset,
+                    )
+                }
+                if (tab == LibraryHomeTab.Home) {
+                    homeShelves(shelves = shelves, total = flat.size, selectedIds = selectedIds, actions = actions)
+                } else {
+                    gridSection(
+                        tab = tab,
+                        genre = genre,
+                        count = gridCount,
+                        rows = gridRows,
+                        columns = columns,
+                        selectedIds = selectedIds,
+                        actions = actions,
+                    )
+                }
             }
         }
     }
+    // ANZ <--
 }
 
 // region Sections
@@ -873,7 +888,6 @@ private fun HomeTop(
     tab: LibraryHomeTab,
     counts: Map<LibraryHomeTab, Int>,
     episodesLeft: Long,
-    ambientOwner: Any,
     heroes: ImmutableList<LibraryItem>,
     pagerState: PagerState,
     selectedIds: Set<Long>,
@@ -881,24 +895,12 @@ private fun HomeTop(
     topInset: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val vibrant by CoverColorObserver.vibrantColors.collectAsState()
-    val background = MaterialTheme.colorScheme.background
-    val accent = MaterialTheme.colorScheme.primary
-
     val current = if (tab == LibraryHomeTab.Home) heroes.getOrNull(pagerState.currentPage) else null
-    val seed = current?.let { vibrant[it.libraryAnime.id] }?.let { Color(it) }
-    val ambientTarget = if (seed != null) {
-        lerp(background, seed, AmbientStrength)
-    } else {
-        lerp(background, accent, AmbientFallback)
-    }
-    val ambient by animateColorAsState(targetValue = ambientTarget, label = "libraryAmbient")
-    SideEffect { LibraryHomeAmbient.publish(ambientOwner, ambient) }
 
+    // ANZ --> transparent: the colour now comes from AmbientBackdrop, which sits behind the whole list
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(ambient, background)))
             .padding(top = topInset),
     ) {
         if (tab == LibraryHomeTab.Home) {
@@ -916,7 +918,99 @@ private fun HomeTop(
             )
         }
     }
+    // ANZ <--
 }
+
+// ANZ -->
+/**
+ * Page backdrop: no more flat black. The colour of the featured cover floods the top of the screen and
+ * keeps a dark tint all the way down, with two soft lights of neighbouring hues for a richer, organic
+ * atmosphere. It changes with a slow cross-fade when the carousel moves to another cover.
+ */
+@Composable
+private fun AmbientBackdrop(
+    tab: LibraryHomeTab,
+    heroes: ImmutableList<LibraryItem>,
+    pagerState: PagerState,
+    ambientOwner: Any,
+    modifier: Modifier = Modifier,
+) {
+    val vibrant by CoverColorObserver.vibrantColors.collectAsState()
+    val background = MaterialTheme.colorScheme.background
+    val accent = MaterialTheme.colorScheme.primary
+
+    val current = if (tab == LibraryHomeTab.Home) heroes.getOrNull(pagerState.currentPage) else null
+    val seed = current?.let { vibrant[it.libraryAnime.id] }?.let { Color(it) }
+    val seedColor by animateColorAsState(
+        targetValue = seed ?: accent,
+        animationSpec = tween(durationMillis = 700),
+        label = "backdropSeed",
+    )
+    val seeded by animateFloatAsState(
+        targetValue = if (seed != null) 1f else 0f,
+        animationSpec = tween(durationMillis = 700),
+        label = "backdropSeeded",
+    )
+
+    // Top of the screen: exactly the tint the toolbar already uses.
+    val top = lerp(background, seedColor, AmbientFallback + (AmbientStrength - AmbientFallback) * seeded)
+    SideEffect { LibraryHomeAmbient.publish(ambientOwner, top) }
+
+    // Rest of the page: a dark but coloured base instead of black.
+    val deep = lerp(background, seedColor, 0.14f + 0.08f * seeded)
+    val mid = lerp(deep, top, 0.40f)
+    val lightA = lerp(seedColor, Color.White, 0.12f)
+    val lightB = hueShift(seedColor, 55f)
+    val lightC = hueShift(seedColor, -45f)
+    val glowBoost = 0.65f + 0.35f * seeded
+
+    Box(
+        modifier = modifier.drawBehind {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    0f to top,
+                    0.45f to mid,
+                    1f to deep,
+                ),
+            )
+            val w = size.width
+            val h = size.height
+            // Light coming from the top-left, where the cover is.
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(lightA.copy(alpha = 0.30f * glowBoost), lightA.copy(alpha = 0f)),
+                    center = Offset(w * 0.1f, h * 0.06f),
+                    radius = w * 1.15f,
+                ),
+            )
+            // Two neighbouring hues lower down, so the shelves float on colour instead of black.
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(lightB.copy(alpha = 0.22f * glowBoost), lightB.copy(alpha = 0f)),
+                    center = Offset(w * 1.0f, h * 0.62f),
+                    radius = w * 1.05f,
+                ),
+            )
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(lightC.copy(alpha = 0.18f * glowBoost), lightC.copy(alpha = 0f)),
+                    center = Offset(0f, h * 0.92f),
+                    radius = w * 1.0f,
+                ),
+            )
+        },
+    )
+}
+
+private fun hueShift(color: Color, degrees: Float): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+    hsv[0] = ((hsv[0] + degrees) % 360f + 360f) % 360f
+    hsv[1] = (hsv[1] * 1.1f).coerceIn(0f, 1f)
+    hsv[2] = hsv[2].coerceAtLeast(0.55f)
+    return Color(android.graphics.Color.HSVToColor(hsv))
+}
+// ANZ <--
 
 private fun timeGreeting(): String {
     val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
@@ -1619,6 +1713,16 @@ private fun PosterCard(
     val shape = RoundedCornerShape(PosterRadius)
     val colors = MaterialTheme.colorScheme
     val (pressSource, pressScale) = rememberPress()
+    // ANZ --> soft glow in the cover's own colour (read while drawing: no recomposition per colour)
+    val vibrantState = CoverColorObserver.vibrantColors.collectAsState()
+    val animeId = anime.id
+    val hasGlow by remember(animeId) { derivedStateOf { vibrantState.value[animeId] != null } }
+    val glowAlpha by animateFloatAsState(
+        targetValue = if (hasGlow) 1f else 0f,
+        animationSpec = tween(durationMillis = 500),
+        label = "posterGlow",
+    )
+    // ANZ <--
 
     Column(
         modifier = modifier
@@ -1627,7 +1731,6 @@ private fun PosterCard(
                 scaleX = scale
                 scaleY = scale
             }
-            .clip(shape)
             .combinedClickable(
                 interactionSource = pressSource,
                 indication = null,
@@ -1638,18 +1741,54 @@ private fun PosterCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                // ANZ -->
+                .drawBehind {
+                    val raw = vibrantState.value[animeId]
+                    if (raw == null || glowAlpha <= 0f) return@drawBehind
+                    val glow = lerp(Color(raw), Color.White, 0.10f)
+                    val bleed = 5.dp.toPx()
+                    val extra = 26.dp.toPx()
+                    val startY = size.height * 0.55f
+                    val total = size.height + extra - startY
+                    val peak = ((size.height - startY) / total).coerceIn(0.05f, 0.95f)
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(
+                            0f to glow.copy(alpha = 0f),
+                            peak to glow.copy(alpha = 0.55f * glowAlpha),
+                            1f to glow.copy(alpha = 0f),
+                            startY = startY,
+                            endY = startY + total,
+                        ),
+                        topLeft = Offset(-bleed, startY),
+                        size = Size(size.width + bleed * 2f, total),
+                        cornerRadius = CornerRadius(PosterRadius.toPx()),
+                    )
+                }
+                // ANZ <--
                 .clip(shape)
-                .border(
-                    width = if (isSelected) 2.dp else 1.dp,
-                    color = if (isSelected) colors.primary else colors.onBackground.copy(alpha = 0.08f),
-                    shape = shape,
+                // ANZ --> thin glass border, bright on top like the player controls
+                .then(
+                    if (isSelected) {
+                        Modifier.border(2.dp, colors.primary, shape)
+                    } else {
+                        Modifier.border(
+                            width = 1.dp,
+                            brush = Brush.verticalGradient(
+                                listOf(Color.White.copy(alpha = 0.32f), Color.White.copy(alpha = 0.04f)),
+                            ),
+                            shape = shape,
+                        )
+                    },
                 ),
+                // ANZ <--
         ) {
             AnimeCover.Book(
                 data = cover,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RectangleShape,
-                shouldExtractColor = false,
+                // ANZ --> lets the cover colour be extracted (cached, off the main thread) for the glow
+                shouldExtractColor = true,
+                // ANZ <--
                 measureRatio = false,
             )
             Box(
