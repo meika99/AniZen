@@ -1,7 +1,5 @@
 package eu.kanade.presentation.components
 
-import android.content.Context
-import android.provider.Settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -18,19 +16,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlin.math.hypot
 import kotlin.math.sin
 
 // ANZ -->
@@ -45,18 +51,23 @@ import kotlin.math.sin
 private const val AuroraLoopSeconds = 120f
 private const val TwoPi = 6.2831855f
 
+// A slow drift does not need more than ~45-60 updates per second: on 90/120 Hz screens every other frame is skipped.
+private const val MinStepNanos = 12_000_000L
+
+/** The backdrop is painted at 1/3 of the screen resolution and stretched back: 9x fewer pixels to shade. */
+private const val LowRes = 3
+
 /** The clock of the screen that is currently on show. The default never moves. */
 val LocalAuroraPhase = staticCompositionLocalOf<State<Float>> { mutableFloatStateOf(0f) }
 
 /**
- * Looping clock in 0..1. It only runs while the app is on screen (lifecycle STARTED): in the
- * background there is no loop at all, and it resumes from where it stopped. It also stays still when
- * the system animations are turned off.
+ * Looping clock in 0..1. It only runs while the app is on screen (lifecycle STARTED): in the background
+ * there is no loop at all, and it resumes from where it stopped. It does NOT depend on the system
+ * animation-scale setting, so the colours keep moving even if the phone has animations turned down.
  */
 @Composable
 fun rememberAuroraPhase(): State<Float> {
     val lifecycleOwner = LocalLifecycleOwner.current
-    val context = LocalContext.current
     val phase = remember { mutableFloatStateOf(0f) }
     var started by remember {
         mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
@@ -72,27 +83,22 @@ fun rememberAuroraPhase(): State<Float> {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val motionAllowed = remember(context) { animationsEnabled(context) }
-    LaunchedEffect(started, motionAllowed) {
-        if (!started || !motionAllowed) return@LaunchedEffect
+    LaunchedEffect(started) {
+        if (!started) return@LaunchedEffect
         var last = withFrameNanos { it }
         while (true) {
             val now = withFrameNanos { it }
-            // a long stall (e.g. a heavy frame) must not make the lights jump
-            val delta = (now - last).coerceIn(0L, 100_000_000L)
+            val elapsed = now - last
+            if (elapsed < MinStepNanos) continue
             last = now
+            // a long stall (e.g. a heavy frame) must not make the lights jump
+            val delta = elapsed.coerceAtMost(100_000_000L)
             var next = phase.floatValue + delta / (AuroraLoopSeconds * 1_000_000_000f)
             if (next >= 1f) next -= 1f
             phase.floatValue = next
         }
     }
     return phase
-}
-
-private fun animationsEnabled(context: Context): Boolean = try {
-    Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
-} catch (_: Exception) {
-    true
 }
 
 /** Smooth wave of [cycles] whole turns per loop, shifted by [shift] turns. Result in -1..1. */
@@ -111,25 +117,60 @@ private class Blob(
     val alpha: Float,
 )
 
-// Cycles per 120 s loop: 8 -> 15 s, 7 -> 17 s, 6 -> 20 s, 5 -> 24 s, 4 -> 30 s. Different horizontal and
-// vertical counts make each light trace a slow loop instead of a plain circle.
+// Cycles per 120 s loop: 11 -> 11 s, 10 -> 12 s, 9 -> 13 s, 8 -> 15 s, 7 -> 17 s, 6 -> 20 s. Different horizontal
+// and vertical counts make each light trace a slow loop instead of a plain circle.
 private val Blobs = listOf(
-    Blob(kx = 8, ky = 5, shift = 0.00f, baseX = 0.20f, baseY = 0.14f, rangeX = 0.34f, rangeY = 0.10f, radius = 0.62f, alpha = 0.46f),
-    Blob(kx = 6, ky = 7, shift = 0.31f, baseX = 0.85f, baseY = 0.50f, rangeX = 0.32f, rangeY = 0.14f, radius = 0.62f, alpha = 0.38f),
-    Blob(kx = 5, ky = 8, shift = 0.67f, baseX = 0.20f, baseY = 0.84f, rangeX = 0.34f, rangeY = 0.12f, radius = 0.62f, alpha = 0.34f),
-    Blob(kx = 7, ky = 4, shift = 0.48f, baseX = 0.78f, baseY = 0.18f, rangeX = 0.28f, rangeY = 0.10f, radius = 0.50f, alpha = 0.26f),
+    Blob(kx = 10, ky = 7, shift = 0.00f, baseX = 0.22f, baseY = 0.16f, rangeX = 0.36f, rangeY = 0.12f, radius = 0.80f, alpha = 0.50f),
+    Blob(kx = 8, ky = 9, shift = 0.31f, baseX = 0.84f, baseY = 0.46f, rangeX = 0.34f, rangeY = 0.16f, radius = 0.80f, alpha = 0.42f),
+    Blob(kx = 7, ky = 11, shift = 0.67f, baseX = 0.20f, baseY = 0.80f, rangeX = 0.36f, rangeY = 0.14f, radius = 0.80f, alpha = 0.40f),
+    Blob(kx = 9, ky = 6, shift = 0.48f, baseX = 0.78f, baseY = 0.20f, rangeX = 0.30f, rangeY = 0.12f, radius = 0.62f, alpha = 0.30f),
 )
 
 /**
- * Page backdrop: a dark coloured vertical base ([top] -> [mid] -> [deep]) with four soft lights in
- * neighbouring hues of [seed] drifting slowly over it, so the colours keep flowing.
+ * A "flow": soft diagonal ribbons of two lights that glide across the whole screen, so the colour of every
+ * part of the page keeps changing. [cycles] whole periods are travelled per loop (negative = other way).
+ */
+private class Flow(
+    val angle: Float,
+    val period: Float,
+    val cycles: Int,
+    val alphaA: Float,
+    val alphaB: Float,
+    val colorA: Int,
+    val colorB: Int,
+)
+
+// Period 1.25 screens every 15 s and 1.8 screens every 24 s, crossing each other: they never repeat the same picture.
+private val Flows = listOf(
+    Flow(angle = 26f, period = 1.25f, cycles = 8, alphaA = 0.24f, alphaB = 0.20f, colorA = 0, colorB = 1),
+    Flow(angle = -34f, period = 1.80f, cycles = -5, alphaA = 0.19f, alphaB = 0.16f, colorA = 2, colorB = 3),
+)
+
+// Soft bump (sin^2) sampled every 1/16 of the period: two ribbons per period, the first in [a], the second in [b].
+private val RibbonProfile = floatArrayOf(0f, 0.146f, 0.5f, 0.854f, 1f, 0.854f, 0.5f, 0.146f, 0f)
+
+private fun ribbonStops(a: Color, alphaA: Float, b: Color, alphaB: Float): Array<Pair<Float, Color>> {
+    val stops = ArrayList<Pair<Float, Color>>(RibbonProfile.size * 2)
+    for (i in RibbonProfile.indices) {
+        stops.add((i * 0.0625f) to a.copy(alpha = (RibbonProfile[i] * alphaA).coerceIn(0f, 1f)))
+    }
+    for (i in RibbonProfile.indices) {
+        stops.add((0.5f + i * 0.0625f) to b.copy(alpha = (RibbonProfile[i] * alphaB).coerceIn(0f, 1f)))
+    }
+    return stops.toTypedArray()
+}
+
+/**
+ * Page backdrop: a dark coloured vertical base ([top] -> [mid] -> [deep]) with two crossing flows of
+ * coloured ribbons and four big soft lights drifting over it, all in neighbouring hues of [seed].
  *
- * Built to be cheap: it lives in its own layer (the per-frame redraw never touches the content above
- * it), the gradients are built once per size / colour change and only translated per frame, the lights
- * are small circles instead of full-screen rectangles, and there is no blur.
+ * Built to be cheap: it lives in its own layer that is painted at 1/3 of the resolution (the soft colours
+ * do not need more) and stretched back up, so the per-frame redraw never touches the content above it and
+ * shades 9x fewer pixels; the gradients are built once per size / colour change and only moved per frame;
+ * there is no blur.
  *
- * @param glow 0.65..1, how strongly the lights show (lower while no cover colour is known yet).
- * @param intensity extra scale for screens that need calmer lights behind lots of text.
+ * @param glow 0.65..1, how strongly the colours show (lower while no cover colour is known yet).
+ * @param intensity extra scale for screens that need calmer colours behind lots of text.
  */
 @Composable
 fun AuroraBackdrop(
@@ -144,20 +185,46 @@ fun AuroraBackdrop(
 ) {
     Box(
         modifier = modifier
-            .graphicsLayer { }
+            .clipToBounds()
+            .layout { measurable, constraints ->
+                val w = if (constraints.hasBoundedWidth) constraints.maxWidth else constraints.minWidth
+                val h = if (constraints.hasBoundedHeight) constraints.maxHeight else constraints.minHeight
+                val placeable = measurable.measure(
+                    Constraints.fixed(
+                        width = maxOf(1, (w + LowRes - 1) / LowRes),
+                        height = maxOf(1, (h + LowRes - 1) / LowRes),
+                    ),
+                )
+                layout(w, h) { placeable.place(0, 0) }
+            }
+            .graphicsLayer {
+                scaleX = LowRes.toFloat()
+                scaleY = LowRes.toFloat()
+                transformOrigin = TransformOrigin(0f, 0f)
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
             .drawWithCache {
                 val w = size.width
                 val h = size.height
                 val strength = glow * intensity
                 val base = Brush.verticalGradient(0f to top, 0.45f to mid, 1f to deep)
                 val lights = listOf(
-                    lerp(seed, Color.White, 0.12f),
-                    auroraHueShift(seed, 55f),
-                    auroraHueShift(seed, -45f),
-                    auroraHueShift(seed, 150f),
+                    lerp(seed, Color.White, 0.10f),
+                    auroraHueShift(seed, 38f),
+                    auroraHueShift(seed, -34f),
+                    auroraHueShift(seed, 140f),
                 )
+                val flowBrushes = List(Flows.size) { i ->
+                    val f = Flows[i]
+                    Brush.linearGradient(
+                        *ribbonStops(lights[f.colorA], f.alphaA * strength, lights[f.colorB], f.alphaB * strength),
+                        start = Offset.Zero,
+                        end = Offset(w * f.period, 0f),
+                        tileMode = TileMode.Repeated,
+                    )
+                }
                 val radii = FloatArray(Blobs.size) { w * Blobs[it].radius }
-                val brushes = List(Blobs.size) { i ->
+                val blobBrushes = List(Blobs.size) { i ->
                     val c = lights[i]
                     Brush.radialGradient(
                         colors = listOf(
@@ -168,17 +235,44 @@ fun AuroraBackdrop(
                         radius = radii[i],
                     )
                 }
+                // keeps the lower half calm so the text over it stays easy to read
+                val veilTop = h * 0.30f
+                val veil = Brush.verticalGradient(
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.32f)),
+                    startY = veilTop,
+                    endY = h,
+                )
+                val diagonal = hypot(w, h)
+                val pivot = Offset(w / 2f, h / 2f)
                 onDrawBehind {
                     drawRect(brush = base)
                     val t = phase.value
+                    for (i in Flows.indices) {
+                        val f = Flows[i]
+                        val period = w * f.period
+                        // whole periods per loop, so the picture at t = 1 is exactly the one at t = 0
+                        val offset = ((f.cycles * t * period) % period + period) % period
+                        rotate(degrees = f.angle, pivot = pivot) {
+                            translate(left = offset) {
+                                drawRect(
+                                    brush = flowBrushes[i],
+                                    topLeft = Offset(pivot.x - diagonal / 2f - period, pivot.y - diagonal / 2f),
+                                    size = Size(diagonal + period, diagonal),
+                                )
+                            }
+                        }
+                    }
                     for (i in Blobs.indices) {
                         val b = Blobs[i]
                         val x = w * (b.baseX + b.rangeX * auroraCycle(t, b.kx, b.shift))
                         val y = h * (b.baseY + b.rangeY * auroraCycle(t, b.ky, b.shift + 0.25f))
+                        // each light also swells and fades a little, so the mix of colours keeps changing
+                        val breathe = 0.80f + 0.20f * auroraCycle(t, 4 + i, b.shift)
                         translate(left = x, top = y) {
-                            drawCircle(brush = brushes[i], radius = radii[i], center = Offset.Zero)
+                            drawCircle(brush = blobBrushes[i], radius = radii[i], center = Offset.Zero, alpha = breathe)
                         }
                     }
+                    drawRect(brush = veil, topLeft = Offset(0f, veilTop), size = Size(w, h - veilTop))
                 }
             },
     )
@@ -188,8 +282,8 @@ private fun auroraHueShift(color: Color, degrees: Float): Color {
     val hsv = FloatArray(3)
     android.graphics.Color.colorToHSV(color.toArgb(), hsv)
     hsv[0] = ((hsv[0] + degrees) % 360f + 360f) % 360f
-    hsv[1] = (hsv[1] * 1.1f).coerceIn(0f, 1f)
-    hsv[2] = hsv[2].coerceAtLeast(0.55f)
+    hsv[1] = (hsv[1] * 1.1f).coerceIn(0.45f, 1f)
+    hsv[2] = hsv[2].coerceAtLeast(0.70f)
     return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
