@@ -162,8 +162,10 @@ fun SeekbarWithTimers(
 
 // ANZ -->
 /**
- * Liquid-glass seekbar: a dark translucent track with a thin gradient rim, a buffered strip, an accent
- * gradient progress with a soft glow and gloss line, and a glossy orb that swells while dragging.
+ * Liquid-glass seekbar, the horizontal sibling of the volume / brightness tubes: a slim glass tube on a
+ * faint dark backing with a light rim, a buffered strip, and "liquid" that fills it from the left (vertical
+ * colour gradient plus cylinder shading and a gloss line). The front of the liquid carries a bright
+ * meniscus glint instead of a dot; while dragging it swells into a glass bead and the tube thickens a bit.
  *
  * The look is drawn by a [Canvas]; the real [Seeker] sits on top, fully transparent, and keeps handling
  * touch, dragging, chapter segments and accessibility exactly as before.
@@ -253,146 +255,219 @@ private fun DrawScope.drawGlassSeekbar(
     accentLight: Color,
     grow: Float,
 ) {
-    // Same geometry as Seeker: the track is inset by the thumb radius on both sides.
+    // Same geometry as Seeker: the track is inset by the thumb radius on both sides, so the thumbnail
+    // preview (which uses the same inset) keeps sitting exactly over the front of the liquid.
     val inset = seekerThumbRadius.toPx()
     val trackW = size.width - inset * 2f
     if (trackW <= 0f) return
+    val g = grow.coerceIn(0f, 1.1f)
     val cy = size.height / 2f
-    val trackH = 6.dp.toPx()
-    val r = trackH / 2f
-    val top = cy - r
-    val corner = CornerRadius(r, r)
-    val trackTopLeft = Offset(inset, top)
-    val trackSize = Size(trackW, trackH)
 
-    // 1) glass track: dark base + light gradient + thin rim
+    // Tube: 12 dp, swelling to 15 dp while dragging.
+    val tubeH = (12f + 3f * g).dp.toPx()
+    val tubeR = tubeH / 2f
+    val tubeTop = cy - tubeR
+    val tubeCorner = CornerRadius(tubeR, tubeR)
+    val tubeTopLeft = Offset(inset, tubeTop)
+    val tubeSize = Size(trackW, tubeH)
+
+    // 1) glass tube: dark backing, light gradient, rim bright on top, glossy highlight line
     drawRoundRect(
-        color = Color.Black.copy(alpha = 0.30f),
-        topLeft = trackTopLeft,
-        size = trackSize,
-        cornerRadius = corner,
+        color = Color.Black.copy(alpha = 0.28f),
+        topLeft = tubeTopLeft,
+        size = tubeSize,
+        cornerRadius = tubeCorner,
     )
     drawRoundRect(
         brush = Brush.verticalGradient(
-            colors = listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.07f)),
-            startY = top,
-            endY = top + trackH,
+            colors = listOf(Color.White.copy(alpha = 0.18f), Color.White.copy(alpha = 0.06f)),
+            startY = tubeTop,
+            endY = tubeTop + tubeH,
         ),
-        topLeft = trackTopLeft,
-        size = trackSize,
-        cornerRadius = corner,
-    )
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(Color.White.copy(alpha = 0.50f), Color.White.copy(alpha = 0.08f)),
-            startY = top,
-            endY = top + trackH,
-        ),
-        topLeft = trackTopLeft,
-        size = trackSize,
-        cornerRadius = corner,
-        style = Stroke(width = 1.dp.toPx()),
+        topLeft = tubeTopLeft,
+        size = tubeSize,
+        cornerRadius = tubeCorner,
     )
 
-    // 2) buffered part
-    val bufferedW = trackW * bufferedFraction
-    if (bufferedW > trackH) {
+    // inner area where buffer and liquid live
+    val pad = 2.dp.toPx()
+    val innerH = tubeH - pad * 2f
+    val innerR = innerH / 2f
+    val innerTop = tubeTop + pad
+    val innerLeft = inset + pad
+    val innerW = trackW - pad * 2f
+    val innerCorner = CornerRadius(innerR, innerR)
+
+    // 2) buffered part: a faint frosted strip inside the tube
+    val bufferedW = innerW * bufferedFraction
+    if (bufferedW > innerH) {
         drawRoundRect(
-            color = Color.White.copy(alpha = 0.26f),
-            topLeft = trackTopLeft,
-            size = Size(bufferedW, trackH),
-            cornerRadius = corner,
+            color = Color.White.copy(alpha = 0.20f),
+            topLeft = Offset(innerLeft, innerTop),
+            size = Size(bufferedW, innerH),
+            cornerRadius = innerCorner,
         )
     }
 
-    // 3) progress: soft glow, accent gradient, gloss line
+    // 3) liquid: fills from the left up to the current position
     val cx = inset + trackW * fraction
-    val progressW = cx - inset
-    if (progressW > 0.5f) {
-        val w = maxOf(progressW, trackH)
-        val glowH = trackH * 3f
+    val hasLiquid = cx - inset > 0.5f
+    val liquidRight = maxOf(cx, innerLeft + innerH).coerceAtMost(innerLeft + innerW)
+    val liquidW = liquidRight - innerLeft
+    if (hasLiquid && liquidW > 0.5f) {
+        val liquidTopLeft = Offset(innerLeft, innerTop)
+        val liquidSize = Size(liquidW, innerH)
+        // body: pale at the top, saturated at the bottom (same as the volume tubes)
         drawRoundRect(
             brush = Brush.verticalGradient(
-                colors = listOf(accent.copy(alpha = 0f), accent.copy(alpha = 0.30f), accent.copy(alpha = 0f)),
-                startY = cy - glowH / 2f,
-                endY = cy + glowH / 2f,
+                colors = listOf(accentLight, accent),
+                startY = innerTop,
+                endY = innerTop + innerH,
             ),
-            topLeft = Offset(inset, cy - glowH / 2f),
-            size = Size(w, glowH),
-            cornerRadius = CornerRadius(glowH / 2f, glowH / 2f),
+            topLeft = liquidTopLeft,
+            size = liquidSize,
+            cornerRadius = innerCorner,
         )
+        // the tail is a little deeper than the front, so the liquid looks like it is flowing forward
         drawRoundRect(
             brush = Brush.horizontalGradient(
-                colors = listOf(accent, accentLight),
-                startX = inset,
-                endX = inset + w,
+                colors = listOf(Color.Black.copy(alpha = 0.26f), Color.Transparent),
+                startX = innerLeft,
+                endX = innerLeft + liquidW * 0.75f,
             ),
-            topLeft = trackTopLeft,
-            size = Size(w, trackH),
-            cornerRadius = corner,
+            topLeft = liquidTopLeft,
+            size = liquidSize,
+            cornerRadius = innerCorner,
         )
-        if (w > trackH * 1.5f) {
+        // cylinder shading: light along the top, a little shade along the bottom
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                0f to Color.White.copy(alpha = 0.32f),
+                0.5f to Color.Transparent,
+                1f to Color.Black.copy(alpha = 0.16f),
+                startY = innerTop,
+                endY = innerTop + innerH,
+            ),
+            topLeft = liquidTopLeft,
+            size = liquidSize,
+            cornerRadius = innerCorner,
+        )
+        // glass edge on the liquid
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0f)),
+                startY = innerTop,
+                endY = innerTop + innerH,
+            ),
+            topLeft = liquidTopLeft,
+            size = liquidSize,
+            cornerRadius = innerCorner,
+            style = Stroke(width = 0.75.dp.toPx()),
+        )
+        // gloss line along the surface
+        if (liquidW > innerH * 1.6f) {
             drawRoundRect(
-                color = Color.White.copy(alpha = 0.42f),
-                topLeft = Offset(inset + r, top + trackH * 0.16f),
-                size = Size(w - trackH, trackH * 0.26f),
-                cornerRadius = CornerRadius(trackH * 0.13f, trackH * 0.13f),
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.50f), Color.White.copy(alpha = 0.18f)),
+                    startX = innerLeft,
+                    endX = liquidRight,
+                ),
+                topLeft = Offset(innerLeft + innerR, innerTop + innerH * 0.16f),
+                size = Size(liquidW - innerH, innerH * 0.18f),
+                cornerRadius = CornerRadius(innerH * 0.09f, innerH * 0.09f),
             )
         }
     }
 
-    // 4) chapter gaps (cleared out of everything drawn so far)
-    val gapW = 3.dp.toPx()
+    // 4) tube rim and highlight, over the liquid like the glass of the volume tubes
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0.10f)),
+            startY = tubeTop,
+            endY = tubeTop + tubeH,
+        ),
+        topLeft = tubeTopLeft,
+        size = tubeSize,
+        cornerRadius = tubeCorner,
+        style = Stroke(width = 1.dp.toPx()),
+    )
+    drawRoundRect(
+        brush = Brush.horizontalGradient(
+            colors = listOf(Color.White.copy(alpha = 0.34f), Color.White.copy(alpha = 0f)),
+            startX = inset + tubeR,
+            endX = inset + tubeR + minOf(trackW * 0.22f, 72.dp.toPx()),
+        ),
+        topLeft = Offset(inset + tubeR, tubeTop + 1.6.dp.toPx()),
+        size = Size(minOf(trackW * 0.22f, 72.dp.toPx()), 1.2.dp.toPx()),
+        cornerRadius = CornerRadius(0.6.dp.toPx(), 0.6.dp.toPx()),
+    )
+
+    // 5) chapter gaps (cleared out of everything drawn so far)
+    val gapW = 2.5.dp.toPx()
     for (f in chapterFractions) {
         val x = inset + trackW * f
         drawRect(
             color = Color.Black,
-            topLeft = Offset(x - gapW / 2f, cy - trackH * 1.6f),
-            size = Size(gapW, trackH * 3.2f),
+            topLeft = Offset(x - gapW / 2f, cy - tubeH * 0.95f),
+            size = Size(gapW, tubeH * 1.9f),
             blendMode = BlendMode.Clear,
         )
     }
 
-    // 5) glossy orb, swells while dragging
-    val orb = (7.5f + 4f * grow.coerceIn(0f, 1.1f)).dp.toPx()
-    val orbCenter = Offset(cx, cy)
-    drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(accent.copy(alpha = 0.55f), accent.copy(alpha = 0f)),
-            center = orbCenter,
-            radius = orb * 2.3f,
-        ),
-        radius = orb * 2.3f,
-        center = orbCenter,
-    )
-    drawCircle(
-        brush = Brush.verticalGradient(
-            colors = listOf(accentLight, accent),
-            startY = cy - orb,
-            endY = cy + orb,
-        ),
-        radius = orb,
-        center = orbCenter,
-    )
-    drawCircle(
-        brush = Brush.verticalGradient(
-            colors = listOf(Color.White.copy(alpha = 0.90f), Color.White.copy(alpha = 0.25f)),
-            startY = cy - orb,
-            endY = cy + orb,
-        ),
-        radius = orb - 0.6.dp.toPx(),
-        center = orbCenter,
-        style = Stroke(width = 1.2.dp.toPx()),
-    )
-    drawOval(
-        brush = Brush.verticalGradient(
-            colors = listOf(Color.White.copy(alpha = 0.85f), Color.White.copy(alpha = 0.05f)),
-            startY = cy - orb * 0.8f,
-            endY = cy - orb * 0.25f,
-        ),
-        topLeft = Offset(cx - orb * 0.5f, cy - orb * 0.8f),
-        size = Size(orb, orb * 0.55f),
-    )
+    // 6) front of the liquid: a bright glint that swells into a glass bead while dragging
+    if (hasLiquid || g > 0.02f) {
+        val edgeX = if (hasLiquid) liquidRight else cx
+        val glowR = tubeH * (1.2f + 0.7f * g)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(accentLight.copy(alpha = 0.34f + 0.18f * g), Color.Transparent),
+                center = Offset(edgeX, cy),
+                radius = glowR,
+            ),
+            radius = glowR,
+            center = Offset(edgeX, cy),
+        )
+        val beadW = (2.6f + 8.4f * g).dp.toPx()
+        val idleH = innerH * 0.62f
+        val beadH = idleH + (innerH + tubeH * 0.95f - idleH) * g
+        val beadCx = edgeX - 2.4.dp.toPx() * (1f - g).coerceAtLeast(0f)
+        val beadTop = cy - beadH / 2f
+        val beadLeft = beadCx - beadW / 2f
+        val beadCorner = CornerRadius(beadW / 2f, beadW / 2f)
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(Color.White.copy(alpha = 0.96f), lerp(accentLight, Color.White, 0.35f)),
+                startY = beadTop,
+                endY = beadTop + beadH,
+            ),
+            topLeft = Offset(beadLeft, beadTop),
+            size = Size(beadW, beadH),
+            cornerRadius = beadCorner,
+        )
+        val glass = g.coerceIn(0f, 1f)
+        if (glass > 0.02f) {
+            drawRoundRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.95f * glass), accent.copy(alpha = 0.75f * glass)),
+                    startY = beadTop,
+                    endY = beadTop + beadH,
+                ),
+                topLeft = Offset(beadLeft, beadTop),
+                size = Size(beadW, beadH),
+                cornerRadius = beadCorner,
+                style = Stroke(width = 1.dp.toPx()),
+            )
+            drawOval(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.85f * glass), Color.White.copy(alpha = 0.04f * glass)),
+                    startY = beadTop + beadH * 0.06f,
+                    endY = beadTop + beadH * 0.36f,
+                ),
+                topLeft = Offset(beadCx - beadW * 0.32f, beadTop + beadH * 0.06f),
+                size = Size(beadW * 0.64f, beadH * 0.3f),
+            )
+        }
+    }
 }
 // ANZ <--
 
