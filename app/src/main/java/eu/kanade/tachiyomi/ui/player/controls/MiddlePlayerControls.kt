@@ -20,8 +20,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
@@ -38,7 +38,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -46,7 +49,10 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -55,7 +61,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import eu.kanade.tachiyomi.R
 import `is`.xyz.mpv.Utils
@@ -104,6 +112,7 @@ fun MiddlePlayerControls(
                     icon = Icons.Rounded.SkipPrevious,
                     onClick = onSkipPrevious,
                     enabled = hasPrevious,
+                    form = PopForm.TriangleLeft,
                 )
                 // ANZ <--
             }
@@ -151,6 +160,7 @@ fun MiddlePlayerControls(
                     GlassCircleButton(
                         onClick = onPlayPauseClick,
                         diameter = PLAY_SIZE,
+                        shape = PopShape(PopForm.Squircle),
                         hero = true,
                     ) {
                         Image(
@@ -178,6 +188,7 @@ fun MiddlePlayerControls(
                     icon = Icons.Rounded.SkipNext,
                     onClick = onSkipNext,
                     enabled = hasNext,
+                    form = PopForm.TriangleRight,
                 )
                 // ANZ <--
             }
@@ -219,13 +230,22 @@ private fun SkipCircleButton(
     icon: ImageVector,
     onClick: () -> Unit,
     enabled: Boolean,
+    form: PopForm,
 ) {
     val (accentTop, accentBase) = rememberGlassAccent()
     val k = if (enabled) 1f else 0.35f
+    // nudge the icon towards the visual centre of the triangle
+    val shift = when (form) {
+        PopForm.TriangleRight -> (-4).dp
+        PopForm.TriangleLeft -> 4.dp
+        PopForm.Squircle -> 0.dp
+    }
     GlassCircleButton(
         onClick = onClick,
         diameter = SKIP_SIZE,
+        shape = PopShape(form),
         enabled = enabled,
+        contentShift = shift,
     ) {
         Icon(
             imageVector = icon,
@@ -250,7 +270,9 @@ private fun SkipCircleButton(
 private fun GlassCircleButton(
     onClick: () -> Unit,
     diameter: Dp,
+    shape: Shape,
     modifier: Modifier = Modifier,
+    contentShift: Dp = 0.dp,
     enabled: Boolean = true,
     hero: Boolean = false,
     content: @Composable () -> Unit,
@@ -272,7 +294,7 @@ private fun GlassCircleButton(
     val clickEvent = LocalPlayerButtonsClickEvent.current
     val (accentTop, accentBase) = rememberGlassAccent()
     val k = if (enabled) 1f else 0.45f
-    val pool = if (hero) 0.42f else 0.30f
+    val pool = if (hero) 0.30f else 0.22f
     val rimAccent = if (hero) 0.85f else 0.60f
 
     Box(
@@ -282,103 +304,73 @@ private fun GlassCircleButton(
                 scaleX = scale
                 scaleY = scale
             }
-            .clip(CircleShape)
+            .clip(shape)
             .drawBehind {
                 val w = size.width
                 val h = size.height
                 val d = size.minDimension
                 val pr = press.value
+                val outline = shape.createOutline(size, layoutDirection, this)
+                val path = (outline as? Outline.Generic)?.path ?: Path().apply { addRect(Rect(Offset.Zero, size)) }
 
-                // body: deep, but lighter towards the upper-left so it reads as a convex surface
-                drawRect(
+                // liquid glass body: a faint smoky base so icons stay readable on bright scenes,
+                // then a clear white tint that is stronger at the upper-left (light hits the dome there)
+                drawPath(path, color = Color.Black.copy(alpha = 0.16f * k))
+                drawPath(
+                    path,
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            Color(0xFF2C2C32).copy(alpha = 0.88f * k),
-                            Color(0xFF09090B).copy(alpha = 0.92f * k),
+                            Color.White.copy(alpha = (0.22f + 0.08f * pr) * k),
+                            Color.White.copy(alpha = 0.05f * k),
                         ),
-                        center = Offset(w * 0.36f, h * 0.28f),
-                        radius = d * 0.95f,
+                        center = Offset(w * 0.32f, h * 0.24f),
+                        radius = d * 1.0f,
                     ),
                 )
-                // accent pooling at the bottom
+                // very soft accent tint pooling at the bottom
                 drawRect(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            accentBase.copy(alpha = ((pool + 0.20f * pr) * k).coerceIn(0f, 1f)),
+                            accentBase.copy(alpha = ((pool + 0.15f * pr) * k).coerceIn(0f, 1f)),
                             Color.Transparent,
                         ),
-                        center = Offset(w * 0.5f, h * 1.02f),
-                        radius = d * 0.80f,
+                        center = Offset(w * 0.5f, h * 1.05f),
+                        radius = d * 0.75f,
                     ),
                 )
-                // soft accent behind the icon
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            accentBase.copy(alpha = ((0.10f + 0.18f * pr) * k).coerceIn(0f, 1f)),
-                            Color.Transparent,
-                        ),
-                        center = center,
-                        radius = d * 0.44f,
-                    ),
-                )
-                // inner edge shadow: darkens the rim so the middle feels raised
-                drawRect(
-                    brush = Brush.radialGradient(
-                        0.60f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.42f * k),
-                        center = center,
-                        radius = d * 0.5f,
-                    ),
-                )
-                // gloss across the upper half
+                // gloss across the upper part
                 drawOval(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = (0.28f + 0.06f * pr) * k),
-                            Color.White.copy(alpha = 0.02f * k),
+                            Color.White.copy(alpha = (0.30f + 0.06f * pr) * k),
+                            Color.Transparent,
                         ),
-                        startY = d * 0.05f,
-                        endY = d * 0.52f,
+                        startY = h * 0.04f,
+                        endY = h * 0.46f,
                     ),
-                    topLeft = Offset(d * 0.13f, d * 0.05f),
-                    size = Size(w - d * 0.26f, d * 0.47f),
+                    topLeft = Offset(w * 0.16f, h * 0.05f),
+                    size = Size(w * 0.68f, h * 0.40f),
                 )
-                // specular arc and a tiny bright dot, top-left
-                val inset = d * 0.14f
-                drawArc(
-                    color = Color.White.copy(alpha = 0.50f * k),
-                    startAngle = 200f,
-                    sweepAngle = 56f,
-                    useCenter = false,
-                    topLeft = Offset(inset, inset),
-                    size = Size(w - inset * 2, h - inset * 2),
-                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
-                )
+                // tiny specular dot
                 drawCircle(
-                    color = Color.White.copy(alpha = 0.75f * k),
-                    radius = 1.6.dp.toPx(),
-                    center = Offset(w * 0.27f, h * 0.2f),
+                    color = Color.White.copy(alpha = 0.70f * k),
+                    radius = 1.5.dp.toPx(),
+                    center = Offset(w * 0.30f, h * 0.22f),
                 )
-                // rim: bright on the upper-left, accent on the lower-right, plus a faint inner line
-                val rimWidth = (if (hero) 1.5.dp else 1.2.dp).toPx()
-                drawCircle(
+                // rim (stroke is clipped, so the visible width is half): bright top-left, accent bottom-right
+                val rimWidth = (if (hero) 1.6.dp else 1.3.dp).toPx() * 2f
+                drawPath(
+                    path,
                     brush = Brush.linearGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0.78f * k),
-                            Color.White.copy(alpha = 0.07f * k),
+                            Color.White.copy(alpha = 0.75f * k),
+                            Color.White.copy(alpha = 0.10f * k),
                             accentTop.copy(alpha = (rimAccent * k).coerceIn(0f, 1f)),
                         ),
                         start = Offset.Zero,
                         end = Offset(w, h),
                     ),
-                    radius = (d - rimWidth) / 2f,
                     style = Stroke(width = rimWidth),
-                )
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.09f * k),
-                    radius = d / 2f - rimWidth - 2.5.dp.toPx(),
-                    style = Stroke(width = 0.8.dp.toPx()),
                 )
             }
             .clickable(
@@ -392,7 +384,43 @@ private fun GlassCircleButton(
             },
         contentAlignment = Alignment.Center,
     ) {
-        content()
+        Box(Modifier.offset(x = contentShift), contentAlignment = Alignment.Center) {
+            content()
+        }
+    }
+}
+
+private enum class PopForm { TriangleLeft, TriangleRight, Squircle }
+
+/** "Gradient Pop" outlines: soft rounded triangles for skip, a squircle for play/pause. */
+private class PopShape(private val form: PopForm) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val w = size.width
+        val h = size.height
+        val path = Path()
+        if (form == PopForm.Squircle) {
+            val r = size.minDimension * 0.32f
+            path.addRoundRect(RoundRect(Rect(Offset.Zero, size), CornerRadius(r, r)))
+            return Outline.Generic(path)
+        }
+        val pts = if (form == PopForm.TriangleRight) {
+            listOf(Offset(w * 0.04f, h * 0.02f), Offset(w * 0.99f, h * 0.5f), Offset(w * 0.04f, h * 0.98f))
+        } else {
+            listOf(Offset(w * 0.96f, h * 0.02f), Offset(w * 0.96f, h * 0.98f), Offset(w * 0.01f, h * 0.5f))
+        }
+        val round = 0.32f
+        fun towards(a: Offset, b: Offset, t: Float) = Offset(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+        for (i in pts.indices) {
+            val prev = pts[(i + pts.size - 1) % pts.size]
+            val cur = pts[i]
+            val next = pts[(i + 1) % pts.size]
+            val start = towards(cur, prev, round)
+            val end = towards(cur, next, round)
+            if (i == 0) path.moveTo(start.x, start.y) else path.lineTo(start.x, start.y)
+            path.quadraticBezierTo(cur.x, cur.y, end.x, end.y)
+        }
+        path.close()
+        return Outline.Generic(path)
     }
 }
 // ANZ <--
