@@ -77,6 +77,12 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.CompositionLocalProvider
+import eu.kanade.presentation.components.AuroraBackdrop
+import eu.kanade.presentation.components.LocalAuroraPhase
+import eu.kanade.presentation.components.auroraCycle
+import eu.kanade.presentation.components.rememberAuroraPhase
+import eu.kanade.presentation.components.revealOnce
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -583,7 +589,10 @@ internal fun LibraryHome(
     // this inset keeps the first row clear of the icons.
     val topInset = contentPadding.calculateTopPadding()
 
-    // ANZ --> colourful page backdrop that stays put while the shelves scroll over it
+    // ANZ --> colourful, slowly moving page backdrop that stays put while the shelves scroll over it
+    val auroraPhase = rememberAuroraPhase()
+    val revealed = remember { mutableSetOf<Any>() }
+    CompositionLocalProvider(LocalAuroraPhase provides auroraPhase) {
     Box(modifier = modifier.fillMaxSize()) {
         AmbientBackdrop(
             tab = tab,
@@ -623,7 +632,13 @@ internal fun LibraryHome(
                     )
                 }
                 if (tab == LibraryHomeTab.Home) {
-                    homeShelves(shelves = shelves, total = flat.size, selectedIds = selectedIds, actions = actions)
+                    homeShelves(
+                        shelves = shelves,
+                        total = flat.size,
+                        selectedIds = selectedIds,
+                        actions = actions,
+                        revealed = revealed,
+                    )
                 } else {
                     gridSection(
                         tab = tab,
@@ -638,6 +653,7 @@ internal fun LibraryHome(
             }
         }
     }
+    }
     // ANZ <--
 }
 
@@ -648,15 +664,21 @@ private fun LazyListScope.homeShelves(
     total: Int,
     selectedIds: Set<Long>,
     actions: HomeActions,
+    revealed: MutableSet<Any>,
 ) {
+    // ANZ --> rows slide up and fade in one after another the first time the page opens
+    var order = 0
+    fun stagger(): Int = (order++ * 90).coerceAtMost(270)
+    // ANZ <--
     if (shelves.watching.isNotEmpty()) {
+        val delay = stagger()
         item(key = "shelf-watching", contentType = "continue") {
             ContinueShelf(
                 entries = shelves.watching,
                 selectedIds = selectedIds,
                 actions = actions,
                 onSeeAll = { actions.onOpenTab(LibraryHomeTab.Watching) },
-                modifier = Modifier.padding(top = ShelfSpacing),
+                modifier = Modifier.padding(top = ShelfSpacing).revealOnce(revealed, "shelf-watching", delay),
             )
         }
     }
@@ -668,24 +690,28 @@ private fun LazyListScope.homeShelves(
         selectedIds = selectedIds,
         actions = actions,
         onSeeAll = { actions.onOpenTab(LibraryHomeTab.NotStarted) },
+        revealed = revealed,
+        delayMillis = stagger(),
     )
     if (shelves.top.size >= MinTopItems) {
+        val delay = stagger()
         item(key = "shelf-top", contentType = "ranked") {
             RankedShelf(
                 title = "Tu top ${shelves.top.size}",
                 entries = shelves.top,
                 selectedIds = selectedIds,
                 actions = actions,
-                modifier = Modifier.padding(top = ShelfSpacing),
+                modifier = Modifier.padding(top = ShelfSpacing).revealOnce(revealed, "shelf-top", delay),
             )
         }
     }
     if (shelves.tiles.size >= 2) {
+        val delay = stagger()
         item(key = "shelf-genres", contentType = "genres") {
             GenreTilesShelf(
                 tiles = shelves.tiles,
                 actions = actions,
-                modifier = Modifier.padding(top = ShelfSpacing),
+                modifier = Modifier.padding(top = ShelfSpacing).revealOnce(revealed, "shelf-genres", delay),
             )
         }
     }
@@ -697,6 +723,8 @@ private fun LazyListScope.homeShelves(
         selectedIds = selectedIds,
         actions = actions,
         onSeeAll = { actions.onOpenTab(LibraryHomeTab.All) },
+        revealed = revealed,
+        delayMillis = stagger(),
     )
     shelves.genres.forEach { genre ->
         shelf(
@@ -707,6 +735,8 @@ private fun LazyListScope.homeShelves(
             selectedIds = selectedIds,
             actions = actions,
             onSeeAll = { actions.onOpenGenre(genre.name) },
+            revealed = revealed,
+            delayMillis = stagger(),
         )
     }
     shelf(
@@ -717,6 +747,8 @@ private fun LazyListScope.homeShelves(
         selectedIds = selectedIds,
         actions = actions,
         onSeeAll = { actions.onOpenTab(LibraryHomeTab.Finished) },
+        revealed = revealed,
+        delayMillis = stagger(),
     )
     item(key = "see-all", contentType = "footer") {
         Box(
@@ -738,6 +770,8 @@ private fun LazyListScope.shelf(
     entries: ImmutableList<LibraryItem>,
     selectedIds: Set<Long>,
     actions: HomeActions,
+    revealed: MutableSet<Any>,
+    delayMillis: Int,
     subtitle: String? = null,
     onSeeAll: (() -> Unit)? = null,
 ) {
@@ -748,7 +782,7 @@ private fun LazyListScope.shelf(
             entries = entries,
             selectedIds = selectedIds,
             actions = actions,
-            modifier = Modifier.padding(top = ShelfSpacing),
+            modifier = Modifier.padding(top = ShelfSpacing).revealOnce(revealed, "shelf-$key", delayMillis),
             subtitle = subtitle,
             onSeeAll = onSeeAll,
         )
@@ -956,49 +990,19 @@ private fun AmbientBackdrop(
     val top = lerp(background, seedColor, AmbientFallback + (AmbientStrength - AmbientFallback) * seeded)
     SideEffect { LibraryHomeAmbient.publish(ambientOwner, top) }
 
-    // Rest of the page: a dark but coloured base instead of black.
+    // Rest of the page: a dark but coloured base instead of black, with four lights drifting over it.
     val deep = lerp(background, seedColor, 0.14f + 0.08f * seeded)
     val mid = lerp(deep, top, 0.40f)
-    val lightA = lerp(seedColor, Color.White, 0.12f)
-    val lightB = hueShift(seedColor, 55f)
-    val lightC = hueShift(seedColor, -45f)
     val glowBoost = 0.65f + 0.35f * seeded
 
-    Box(
-        modifier = modifier.drawBehind {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    0f to top,
-                    0.45f to mid,
-                    1f to deep,
-                ),
-            )
-            val w = size.width
-            val h = size.height
-            // Light coming from the top-left, where the cover is.
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(lightA.copy(alpha = 0.30f * glowBoost), lightA.copy(alpha = 0f)),
-                    center = Offset(w * 0.1f, h * 0.06f),
-                    radius = w * 1.15f,
-                ),
-            )
-            // Two neighbouring hues lower down, so the shelves float on colour instead of black.
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(lightB.copy(alpha = 0.22f * glowBoost), lightB.copy(alpha = 0f)),
-                    center = Offset(w * 1.0f, h * 0.62f),
-                    radius = w * 1.05f,
-                ),
-            )
-            drawRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(lightC.copy(alpha = 0.18f * glowBoost), lightC.copy(alpha = 0f)),
-                    center = Offset(0f, h * 0.92f),
-                    radius = w * 1.0f,
-                ),
-            )
-        },
+    AuroraBackdrop(
+        top = top,
+        mid = mid,
+        deep = deep,
+        seed = seedColor,
+        glow = glowBoost,
+        phase = LocalAuroraPhase.current,
+        modifier = modifier,
     )
 }
 
@@ -1155,6 +1159,7 @@ private fun HeroCard(
     val cover = remember(anime.id, anime.thumbnailUrl, anime.coverLastModified) { anime.asAnimeCover() }
     val shape = RoundedCornerShape(HeroRadius)
     val (pressSource, pressScale) = rememberPress()
+    val auroraPhase = LocalAuroraPhase.current
 
     Box(
         modifier = modifier
@@ -1188,10 +1193,15 @@ private fun HeroCard(
                 .fillMaxWidth()
                 .graphicsLayer {
                     val offset = pageOffset().coerceIn(-1f, 1f)
-                    val zoom = 1f + 0.24f * offset.absoluteValue
+                    // Slow "cinema" drift: the artwork breathes in and out (1.05x -> 1.11x every 20 s) and
+                    // wanders a little. The base zoom keeps every edge covered; read in the layer only.
+                    val t = auroraPhase.value
+                    val breathe = 0.5f - 0.5f * auroraCycle(t, 6, 0.25f)
+                    val zoom = 1.05f + 0.06f * breathe + 0.24f * offset.absoluteValue
                     scaleX = zoom
                     scaleY = zoom
-                    translationX = offset * size.width * 0.12f
+                    translationX = offset * size.width * 0.12f + auroraCycle(t, 4) * size.width * 0.012f
+                    translationY = auroraCycle(t, 3, 0.1f) * size.height * 0.008f
                 },
             shape = RectangleShape,
             shouldExtractColor = true,
