@@ -23,8 +23,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -33,10 +36,12 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 // ANZ -->
@@ -53,6 +58,9 @@ private const val TwoPi = 6.2831855f
 
 // A slow drift does not need more than ~45-60 updates per second: on 90/120 Hz screens every other frame is skipped.
 private const val MinStepNanos = 12_000_000L
+
+// How much of the page the cover mosaic covers (the rest is the dark coloured base showing through).
+private const val MosaicAlpha = 0.80f
 
 /** The backdrop is painted at 1/3 of the screen resolution and stretched back: 9x fewer pixels to shade. */
 private const val LowRes = 3
@@ -179,6 +187,10 @@ fun auroraLightsFor(seed: Color): List<Color> = listOf(
  * there is no blur.
  *
  * @param palette the four lights to use (e.g. read from the cover); defaults to hues around [seed].
+ * @param mosaics one tiny blurred picture of the cover per carousel page (null while it is not read yet) and
+ * [mosaicPosition] the carousel position in pages (page + drag offset, read while drawing): while the user
+ * swipes, the two neighbouring pictures are cross-faded following the finger. [mosaicReveal] 0..1 fades the
+ * whole mosaic in or out.
  * @param glow 0.65..1, how strongly the colours show (lower while no cover colour is known yet).
  * @param intensity extra scale for screens that need calmer colours behind lots of text.
  */
@@ -193,6 +205,9 @@ fun AuroraBackdrop(
     modifier: Modifier = Modifier,
     intensity: Float = 1f,
     palette: List<Color>? = null,
+    mosaics: List<ImageBitmap?> = emptyList(),
+    mosaicPosition: () -> Float = { 0f },
+    mosaicReveal: Float = 1f,
 ) {
     Box(
         modifier = modifier
@@ -259,6 +274,24 @@ fun AuroraBackdrop(
                 val pivot = Offset(w / 2f, h / 2f)
                 onDrawBehind {
                     drawRect(brush = base)
+                    if (mosaics.isNotEmpty() && mosaicReveal > 0.01f) {
+                        val pos = mosaicPosition().coerceIn(0f, (mosaics.size - 1).toFloat())
+                        val first = pos.toInt()
+                        val frac = pos - first
+                        val a = mosaics[first]
+                        val b = mosaics[minOf(first + 1, mosaics.size - 1)]
+                        // a page whose picture is not ready simply does not take part in the cross-fade
+                        var wa = if (a != null) 1f - frac else 0f
+                        var wb = if (b != null) frac else 0f
+                        val total = wa + wb
+                        if (total > 0.001f) {
+                            wa /= total
+                            wb /= total
+                            val k = MosaicAlpha * mosaicReveal
+                            if (a != null && wa > 0.001f) drawMosaic(a, k * wa)
+                            if (b != null && wb > 0.001f) drawMosaic(b, k * wb)
+                        }
+                    }
                     val t = phase.value
                     for (i in Flows.indices) {
                         val f = Flows[i]
@@ -289,6 +322,17 @@ fun AuroraBackdrop(
                     drawRect(brush = scrim, size = Size(w, scrimHeight))
                 }
             },
+    )
+}
+
+/** Stretches the tiny picture over the whole backdrop; the smooth up-scaling is what blurs it. */
+private fun DrawScope.drawMosaic(image: ImageBitmap, alpha: Float) {
+    drawImage(
+        image = image,
+        srcSize = IntSize(image.width, image.height),
+        dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+        alpha = alpha,
+        filterQuality = FilterQuality.Low,
     )
 }
 
