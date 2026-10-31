@@ -120,10 +120,10 @@ private class Blob(
 // Cycles per 120 s loop: 11 -> 11 s, 10 -> 12 s, 9 -> 13 s, 8 -> 15 s, 7 -> 17 s, 6 -> 20 s. Different horizontal
 // and vertical counts make each light trace a slow loop instead of a plain circle.
 private val Blobs = listOf(
-    Blob(kx = 10, ky = 7, shift = 0.00f, baseX = 0.22f, baseY = 0.16f, rangeX = 0.36f, rangeY = 0.12f, radius = 0.80f, alpha = 0.50f),
-    Blob(kx = 8, ky = 9, shift = 0.31f, baseX = 0.84f, baseY = 0.46f, rangeX = 0.34f, rangeY = 0.16f, radius = 0.80f, alpha = 0.42f),
-    Blob(kx = 7, ky = 11, shift = 0.67f, baseX = 0.20f, baseY = 0.80f, rangeX = 0.36f, rangeY = 0.14f, radius = 0.80f, alpha = 0.40f),
-    Blob(kx = 9, ky = 6, shift = 0.48f, baseX = 0.78f, baseY = 0.20f, rangeX = 0.30f, rangeY = 0.12f, radius = 0.62f, alpha = 0.30f),
+    Blob(kx = 10, ky = 7, shift = 0.00f, baseX = 0.22f, baseY = 0.16f, rangeX = 0.36f, rangeY = 0.12f, radius = 0.80f, alpha = 0.58f),
+    Blob(kx = 8, ky = 9, shift = 0.31f, baseX = 0.84f, baseY = 0.46f, rangeX = 0.34f, rangeY = 0.16f, radius = 0.80f, alpha = 0.50f),
+    Blob(kx = 7, ky = 11, shift = 0.67f, baseX = 0.20f, baseY = 0.80f, rangeX = 0.36f, rangeY = 0.14f, radius = 0.80f, alpha = 0.46f),
+    Blob(kx = 9, ky = 6, shift = 0.48f, baseX = 0.78f, baseY = 0.20f, rangeX = 0.30f, rangeY = 0.12f, radius = 0.62f, alpha = 0.36f),
 )
 
 /**
@@ -142,23 +142,32 @@ private class Flow(
 
 // Period 1.25 screens every 15 s and 1.8 screens every 24 s, crossing each other: they never repeat the same picture.
 private val Flows = listOf(
-    Flow(angle = 26f, period = 1.25f, cycles = 8, alphaA = 0.24f, alphaB = 0.20f, colorA = 0, colorB = 1),
-    Flow(angle = -34f, period = 1.80f, cycles = -5, alphaA = 0.19f, alphaB = 0.16f, colorA = 2, colorB = 3),
+    Flow(angle = 26f, period = 1.25f, cycles = 8, alphaA = 0.27f, alphaB = 0.23f, colorA = 0, colorB = 1),
+    Flow(angle = -34f, period = 1.80f, cycles = -5, alphaA = 0.21f, alphaB = 0.18f, colorA = 2, colorB = 3),
 )
 
-// Soft bump (sin^2) sampled every 1/16 of the period: two ribbons per period, the first in [a], the second in [b].
-private val RibbonProfile = floatArrayOf(0f, 0.146f, 0.5f, 0.854f, 1f, 0.854f, 0.5f, 0.146f, 0f)
+// The ribbons are sampled every 1/16 of the period. Their opacity swells and fades (sin^2) but never drops
+// below RibbonFloor, so there are no dark gaps between them, and their colour blends from [a] to [b] and back.
+private const val RibbonSteps = 16
+private const val RibbonFloor = 0.30f
 
-private fun ribbonStops(a: Color, alphaA: Float, b: Color, alphaB: Float): Array<Pair<Float, Color>> {
-    val stops = ArrayList<Pair<Float, Color>>(RibbonProfile.size * 2)
-    for (i in RibbonProfile.indices) {
-        stops.add((i * 0.0625f) to a.copy(alpha = (RibbonProfile[i] * alphaA).coerceIn(0f, 1f)))
+private fun ribbonStops(a: Color, alphaA: Float, b: Color, alphaB: Float): Array<Pair<Float, Color>> =
+    Array(RibbonSteps + 1) { i ->
+        val u = i / RibbonSteps.toFloat()
+        val wave = sin(TwoPi * u)
+        val toB = 0.5f - 0.5f * wave
+        val swell = RibbonFloor + (1f - RibbonFloor) * wave * wave
+        val alpha = ((alphaA * (1f - toB) + alphaB * toB) * swell).coerceIn(0f, 1f)
+        u to lerp(a, b, toB).copy(alpha = alpha)
     }
-    for (i in RibbonProfile.indices) {
-        stops.add((0.5f + i * 0.0625f) to b.copy(alpha = (RibbonProfile[i] * alphaB).coerceIn(0f, 1f)))
-    }
-    return stops.toTypedArray()
-}
+
+/** The four lights used for a single [seed] colour: the colour itself and neighbouring hues of it. */
+fun auroraLightsFor(seed: Color): List<Color> = listOf(
+    lerp(seed, Color.White, 0.10f),
+    auroraHueShift(seed, 38f),
+    auroraHueShift(seed, -34f),
+    auroraHueShift(seed, 140f),
+)
 
 /**
  * Page backdrop: a dark coloured vertical base ([top] -> [mid] -> [deep]) with two crossing flows of
@@ -169,6 +178,7 @@ private fun ribbonStops(a: Color, alphaA: Float, b: Color, alphaB: Float): Array
  * shades 9x fewer pixels; the gradients are built once per size / colour change and only moved per frame;
  * there is no blur.
  *
+ * @param palette the four lights to use (e.g. read from the cover); defaults to hues around [seed].
  * @param glow 0.65..1, how strongly the colours show (lower while no cover colour is known yet).
  * @param intensity extra scale for screens that need calmer colours behind lots of text.
  */
@@ -182,6 +192,7 @@ fun AuroraBackdrop(
     phase: State<Float>,
     modifier: Modifier = Modifier,
     intensity: Float = 1f,
+    palette: List<Color>? = null,
 ) {
     Box(
         modifier = modifier
@@ -208,12 +219,7 @@ fun AuroraBackdrop(
                 val h = size.height
                 val strength = glow * intensity
                 val base = Brush.verticalGradient(0f to top, 0.45f to mid, 1f to deep)
-                val lights = listOf(
-                    lerp(seed, Color.White, 0.10f),
-                    auroraHueShift(seed, 38f),
-                    auroraHueShift(seed, -34f),
-                    auroraHueShift(seed, 140f),
-                )
+                val lights = palette?.takeIf { it.size >= 4 } ?: auroraLightsFor(seed)
                 val flowBrushes = List(Flows.size) { i ->
                     val f = Flows[i]
                     Brush.linearGradient(
@@ -235,12 +241,19 @@ fun AuroraBackdrop(
                         radius = radii[i],
                     )
                 }
-                // keeps the lower half calm so the text over it stays easy to read
+                // keeps the lower half calm so the text over it stays easy to read; tinted, never black
                 val veilTop = h * 0.30f
                 val veil = Brush.verticalGradient(
-                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.32f)),
+                    colors = listOf(Color.Transparent, deep.copy(alpha = 0.16f)),
                     startY = veilTop,
                     endY = h,
+                )
+                // and the very top, under the status bar and the title, a little darker
+                val scrimHeight = h * 0.20f
+                val scrim = Brush.verticalGradient(
+                    colors = listOf(Color.Black.copy(alpha = 0.30f), Color.Transparent),
+                    startY = 0f,
+                    endY = scrimHeight,
                 )
                 val diagonal = hypot(w, h)
                 val pivot = Offset(w / 2f, h / 2f)
@@ -273,6 +286,7 @@ fun AuroraBackdrop(
                         }
                     }
                     drawRect(brush = veil, topLeft = Offset(0f, veilTop), size = Size(w, h - veilTop))
+                    drawRect(brush = scrim, size = Size(w, scrimHeight))
                 }
             },
     )
