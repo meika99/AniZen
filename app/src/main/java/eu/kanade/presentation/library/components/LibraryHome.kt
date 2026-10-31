@@ -1022,7 +1022,26 @@ private fun AmbientBackdrop(
     val light1 by animateColorAsState(lightTargets[1], fade, label = "ambientLight1")
     val light2 by animateColorAsState(lightTargets[2], fade, label = "ambientLight2")
     val light3 by animateColorAsState(lightTargets[3], fade, label = "ambientLight3")
-    val glow by animateFloatAsState(glowTarget, tween(durationMillis = 700), label = "ambientGlow")
+    // The cover mosaic: one per carousel page, cross-faded following the finger while swiping. With the mosaic the
+    // colours already come from the artwork, so the moving lights are a bit softer.
+    val mosaics = if (tab == LibraryHomeTab.Home) {
+        heroes.map { hero ->
+            CoverTonesCache.get(hero.libraryAnime.anime.id, hero.libraryAnime.anime.coverLastModified)?.mosaic
+        }
+    } else {
+        emptyList()
+    }
+    val mosaicOn = mosaics.getOrNull(pagerState.currentPage) != null
+    val mosaicReveal by animateFloatAsState(
+        targetValue = if (mosaicOn) 1f else 0f,
+        animationSpec = tween(durationMillis = 700),
+        label = "ambientMosaic",
+    )
+    val glow by animateFloatAsState(
+        targetValue = glowTarget * (1f - 0.15f * (if (mosaicOn) 1f else 0f)),
+        animationSpec = tween(durationMillis = 700),
+        label = "ambientGlow",
+    )
 
     // Top of the screen: exactly the tint the toolbar uses.
     SideEffect { LibraryHomeAmbient.publish(ambientOwner, top) }
@@ -1036,6 +1055,9 @@ private fun AmbientBackdrop(
         phase = LocalAuroraPhase.current,
         modifier = modifier,
         palette = listOf(light0, light1, light2, light3),
+        mosaics = mosaics,
+        mosaicPosition = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
+        mosaicReveal = mosaicReveal,
     )
 }
 
