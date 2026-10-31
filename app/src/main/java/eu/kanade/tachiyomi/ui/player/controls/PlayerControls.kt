@@ -38,7 +38,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalRippleConfiguration
@@ -98,7 +98,6 @@ import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.player.settings.SubtitlePreferences
 import exh.log.InterpolationStatsOverlay
 import `is`.xyz.mpv.MPV
-import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
@@ -506,11 +505,11 @@ fun PlayerControls(
                             if (skipIntroLabel != null) {
                                 // ANZ --> icon only: the text (e.g. "+85 s") stays just as the accessibility label
                                 GlassIconButton(
-                                    icon = Icons.Filled.FastForward,
+                                    icon = Icons.Rounded.SkipNext,
                                     contentDescription = skipIntroLabel,
                                     onClick = viewModel::onSkipIntro,
                                     onLongClick = viewModel::onSkipIntro,
-                                    pulse = true,
+                                    pulse = false,
                                 )
                                 // ANZ <--
                             } else if (actionButton != null && customButtonTitle.isNotEmpty()) {

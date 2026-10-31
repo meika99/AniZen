@@ -164,6 +164,7 @@ fun RenderPlayerButton(
             val currentSpeed = playbackSpeed ?: viewModel.playerPreferences.playerSpeed().get()
             ControlsButton(
                 text = stringResource(MR.strings.player_speed, currentSpeed),
+                liquidGlass = true,
                 onClick = {
                     val newSpeed = if (currentSpeed >= 2f) 0.25f else (currentSpeed + 0.25f).toFixed(2)
                     // ANZ -->
