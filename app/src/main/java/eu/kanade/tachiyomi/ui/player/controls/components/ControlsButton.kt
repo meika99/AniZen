@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -137,8 +138,10 @@ fun ControlsButton(
     modifier: Modifier = Modifier,
     onLongClick: () -> Unit = {},
     color: Color = Color.White,
+    liquidGlass: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val accent = MaterialTheme.colorScheme.primary
 
     val clickEvent = LocalPlayerButtonsClickEvent.current
     Box(
@@ -159,7 +162,39 @@ fun ControlsButton(
             )
             // ANZ --> soft translucent pill instead of bare text
             .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.13f))
+            .then(
+                if (liquidGlass) {
+                    Modifier
+                        .background(Color.Black.copy(alpha = 0.30f))
+                        .drawBehind {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.13f),
+                                        Color.White.copy(alpha = 0.02f),
+                                        accent.copy(alpha = 0.10f),
+                                    ),
+                                ),
+                            )
+                            val edge = 1.dp.toPx()
+                            drawRoundRect(
+                                brush = Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.40f),
+                                        Color.White.copy(alpha = 0.10f),
+                                        accent.copy(alpha = 0.26f),
+                                    ),
+                                ),
+                                topLeft = Offset(edge / 2f, edge / 2f),
+                                size = Size(size.width - edge, size.height - edge),
+                                cornerRadius = CornerRadius(size.height / 2f),
+                                style = Stroke(width = edge),
+                            )
+                        }
+                } else {
+                    Modifier.background(Color.White.copy(alpha = 0.13f))
+                },
+            )
             .indication(
                 interactionSource,
                 ripple(),
@@ -278,9 +313,9 @@ fun GlassIconButton(
     val haptic = LocalHapticFeedback.current
     val clickEvent = LocalPlayerButtonsClickEvent.current
     val accent = MaterialTheme.colorScheme.primary
-    val accentLight = remember(accent) { lerp(accent, Color.White, 0.72f) }
+    val accentLight = remember(accent) { lerp(accent, Color.White, 0.90f) }
     val neutralTop = Color.White.copy(alpha = 0.92f)
-    val neutralBottom = Color.White.copy(alpha = 0.62f)
+    val neutralBottom = Color.White.copy(alpha = 0.90f)
 
     Box(
         modifier = modifier
@@ -290,7 +325,7 @@ fun GlassIconButton(
                 scaleY = scale
             }
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.34f))
+            .background(Color.Black.copy(alpha = 0.30f))
             .drawBehind {
                 val l = lit.value
                 val p = breathe?.value ?: 0f
@@ -298,30 +333,31 @@ fun GlassIconButton(
                 drawRect(
                     brush = Brush.verticalGradient(
                         listOf(
-                            Color.White.copy(alpha = 0.15f),
-                            Color.White.copy(alpha = 0.03f),
-                            accent.copy(alpha = ((0.06f + 0.20f * l) * (1f + 0.5f * p)).coerceIn(0f, 1f)),
+                            Color.White.copy(alpha = 0.13f),
+                            Color.White.copy(alpha = 0.02f),
+                            accent.copy(alpha = ((0.02f + 0.08f * l) * (1f + 0.15f * p)).coerceIn(0f, 1f)),
                         ),
                     ),
                 )
                 // small specular arc, top-left
                 val inset = size.minDimension * 0.16f
                 drawArc(
-                    color = Color.White.copy(alpha = 0.40f),
+                    color = Color.White.copy(alpha = 0.32f),
                     startAngle = 200f,
                     sweepAngle = 56f,
                     useCenter = false,
                     topLeft = Offset(inset, inset),
                     size = Size(size.width - inset * 2, size.height - inset * 2),
-                    style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round),
+                    style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round),
                 )
                 // hairline edge: bright on top, accent below
                 val stroke = 1.dp.toPx()
                 drawCircle(
                     brush = Brush.verticalGradient(
                         listOf(
-                            Color.White.copy(alpha = 0.55f),
-                            accent.copy(alpha = ((0.20f + 0.45f * l) * (1f + 0.35f * p)).coerceIn(0f, 1f)),
+                            Color.White.copy(alpha = 0.40f),
+                            Color.White.copy(alpha = 0.10f),
+                            accent.copy(alpha = ((0.08f + 0.18f * l) * (1f + 0.15f * p)).coerceIn(0f, 1f)),
                         ),
                     ),
                     radius = (size.minDimension - stroke) / 2f,
@@ -351,7 +387,7 @@ fun GlassIconButton(
                     val l = lit.value
                     drawRect(
                         brush = Brush.verticalGradient(
-                            listOf(lerp(neutralTop, accentLight, l), lerp(neutralBottom, accent, l)),
+                            listOf(lerp(neutralTop, accentLight, l), lerp(neutralBottom, accentLight, l * 0.35f)),
                         ),
                         blendMode = BlendMode.SrcIn,
                     )
