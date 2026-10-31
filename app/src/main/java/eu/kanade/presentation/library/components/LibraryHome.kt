@@ -81,6 +81,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import eu.kanade.presentation.components.AuroraBackdrop
 import eu.kanade.presentation.components.LocalAuroraPhase
 import eu.kanade.presentation.components.auroraCycle
+import eu.kanade.presentation.components.auroraLightsFor
 import eu.kanade.presentation.components.rememberAuroraPhase
 import eu.kanade.presentation.components.revealOnce
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -986,23 +987,55 @@ private fun AmbientBackdrop(
         label = "backdropSeeded",
     )
 
-    // Top of the screen: exactly the tint the toolbar already uses.
-    val top = lerp(background, seedColor, AmbientFallback + (AmbientStrength - AmbientFallback) * seeded)
-    SideEffect { LibraryHomeAmbient.publish(ambientOwner, top) }
+    // Colours read from the cover itself (see CoverTones). While the next cover is still being read the
+    // previous colours stay, so swiping never flashes back to a neutral page; a black-and-white cover
+    // falls back to the single vibrant colour used before.
+    val raw = current?.let {
+        CoverTonesCache.get(it.libraryAnime.anime.id, it.libraryAnime.anime.coverLastModified)
+    }
+    val lastTones = remember { arrayOfNulls<CoverTones>(1) }
+    val tones = when {
+        tab != LibraryHomeTab.Home -> null
+        raw != null -> raw.takeIf { it.lights.isNotEmpty() }
+        current != null -> lastTones[0]
+        else -> null
+    }
+    SideEffect {
+        if (raw != null && raw.lights.isNotEmpty()) lastTones[0] = raw
+    }
 
-    // Rest of the page: a dark but coloured base instead of black, with four lights drifting over it.
-    val deep = lerp(background, seedColor, 0.14f + 0.08f * seeded)
-    val mid = lerp(deep, top, 0.40f)
-    val glowBoost = 0.65f + 0.35f * seeded
+    // Fallback colours: the old single-seed look.
+    val legacyTop = lerp(background, seedColor, AmbientFallback + (AmbientStrength - AmbientFallback) * seeded)
+    val legacyDeep = lerp(background, seedColor, 0.14f + 0.08f * seeded)
+    val legacyMid = lerp(legacyDeep, legacyTop, 0.40f)
+    val legacyGlow = 0.65f + 0.35f * seeded
+
+    val lightTargets = tones?.lights ?: auroraLightsFor(seedColor)
+    val glowTarget = tones?.let { 0.60f + 0.40f * minOf(1f, it.presence / 0.30f) } ?: legacyGlow
+
+    // Everything cross-fades slowly when the carousel moves to another cover.
+    val fade = tween<Color>(durationMillis = 700)
+    val top by animateColorAsState(tones?.top ?: legacyTop, fade, label = "ambientTop")
+    val mid by animateColorAsState(tones?.mid ?: legacyMid, fade, label = "ambientMid")
+    val deep by animateColorAsState(tones?.deep ?: legacyDeep, fade, label = "ambientDeep")
+    val light0 by animateColorAsState(lightTargets[0], fade, label = "ambientLight0")
+    val light1 by animateColorAsState(lightTargets[1], fade, label = "ambientLight1")
+    val light2 by animateColorAsState(lightTargets[2], fade, label = "ambientLight2")
+    val light3 by animateColorAsState(lightTargets[3], fade, label = "ambientLight3")
+    val glow by animateFloatAsState(glowTarget, tween(durationMillis = 700), label = "ambientGlow")
+
+    // Top of the screen: exactly the tint the toolbar uses.
+    SideEffect { LibraryHomeAmbient.publish(ambientOwner, top) }
 
     AuroraBackdrop(
         top = top,
         mid = mid,
         deep = deep,
         seed = seedColor,
-        glow = glowBoost,
+        glow = glow,
         phase = LocalAuroraPhase.current,
         modifier = modifier,
+        palette = listOf(light0, light1, light2, light3),
     )
 }
 
@@ -1205,6 +1238,9 @@ private fun HeroCard(
                 },
             shape = RectangleShape,
             shouldExtractColor = true,
+            // ANZ --> the backdrop paints itself with the colours of this very cover
+            onCoverLoaded = { loaded, result -> CoverTonesCache.request(loaded, result) },
+            // ANZ <--
             measureRatio = false,
             ratio = ratio,
         )
